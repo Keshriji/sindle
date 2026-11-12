@@ -21,7 +21,10 @@ To develop in Xcode: `xed .` on the package, or open it with File > Open > Packa
 - Pages (tab buttons or swipe left/right): Player, synced Lyrics (LRCLIB), Weather (MET Norway)
 
 - Edge sliders: volume (left edge) and brightness (right edge). Hover to widen, drag to change.
-  Volume goes through CoreAudio, so it is exact and immediate and needs no Automation permission.
+  Volume goes through CoreAudio, so it is exact and immediate and needs no Automation permission:
+  it uses the device's main volume where there is one and otherwise sets every output channel, so
+  AirPods, HDMI and external displays all work, and it tracks mute (a muted device reads as 0 and
+  raising the slider unmutes).
   Brightness uses a private Apple framework; if that framework is missing on your macOS the
   brightness slider is hidden instead of doing nothing.
 
