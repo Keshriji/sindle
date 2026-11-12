@@ -15,6 +15,7 @@ struct IslandView: View {
     @ObservedObject var lyrics: LyricsStore
     @ObservedObject var status: StatusStore
     let tools: Tools
+    @ObservedObject var look: Look
     @State private var pinned = false
     @State private var dropping = false
     @State private var open = false
@@ -29,11 +30,13 @@ struct IslandView: View {
     var body: some View {
         VStack(spacing: 0) {
             ZStack(alignment: .top) {
-                Rectangle().fill(.black)
+                Rectangle().fill(look.fill)
                 content.padding(.horizontal, open ? 18 : 12).padding(.top, open ? 12 : 0)
             }
             .frame(width: w, height: h)
-            .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: radius, bottomTrailingRadius: radius))
+            .clipShape(look.shape == .classic
+                       ? AnyShape(UnevenRoundedRectangle(bottomLeadingRadius: radius, bottomTrailingRadius: radius))
+                       : AnyShape(RoundedRectangle(cornerRadius: radius + look.topCorners)))
             .onDrop(of: [.fileURL], isTargeted: $dropping) { providers in
                 for p in providers {
                     _ = p.loadObject(ofClass: NSURL.self) { obj, _ in
@@ -55,6 +58,7 @@ struct IslandView: View {
             })
             Spacer(minLength: 0)
         }
+        .padding(.top, look.topInset)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .animation(spring, value: status.toast)
         .onAppear { withAnimation(.linear(duration: 4).repeatForever(autoreverses: false)) { spin = true } }

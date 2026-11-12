@@ -5,7 +5,7 @@ import AppKit
 final class IslandPanel: NSPanel {
     static let size = CGSize(width: 420, height: 190)
 
-    init(player: NowPlaying, weather: WeatherStore, lyrics: LyricsStore, status: StatusStore, tools: Tools) {
+    init(player: NowPlaying, weather: WeatherStore, lyrics: LyricsStore, status: StatusStore, tools: Tools, look: Look) {
         super.init(contentRect: .zero,
                    styleMask: [.borderless, .nonactivatingPanel],
                    backing: .buffered, defer: false)
@@ -15,7 +15,7 @@ final class IslandPanel: NSPanel {
         level = .statusBar
         collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
         isMovable = false
-        contentView = NSHostingView(rootView: IslandView(player: player, weather: weather, lyrics: lyrics, status: status, tools: tools))
+        contentView = NSHostingView(rootView: IslandView(player: player, weather: weather, lyrics: lyrics, status: status, tools: tools, look: look))
         reposition()
     }
 

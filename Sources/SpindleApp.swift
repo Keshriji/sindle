@@ -7,6 +7,17 @@ struct SpindleApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
     var body: some Scene {
         MenuBarExtra("Spindle", systemImage: "opticaldisc") {
+            Menu("Island shape") {
+                ForEach(IslandShape.allCases) { shape in
+                    Button(shape.title) { delegate.look.shape = shape }
+                }
+            }
+            Menu("Island finish") {
+                ForEach(IslandFinish.allCases) { finish in
+                    Button(finish.title) { delegate.look.finish = finish }
+                }
+            }
+            Divider()
             Button("Show or hide desktop widget") { delegate.toggleWidget() }
             Button("Turn beat glow on or off") { delegate.toggleGlow() }
             Divider()
@@ -21,15 +32,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var glow: GlowPanel?
     var bag = Set<AnyCancellable>()
     var edges: [EdgePanel] = []
+    let look = Look()
     let player = NowPlaying(), weather = WeatherStore(), lyrics = LyricsStore()
     let system = SystemControls(), status = StatusStore(), tools = Tools()
 
     func applicationDidFinishLaunching(_ n: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        panel = IslandPanel(player: player, weather: weather, lyrics: lyrics, status: status, tools: tools)
+        panel = IslandPanel(player: player, weather: weather, lyrics: lyrics, status: status, tools: tools, look: look)
         panel?.orderFrontRegardless()
-        edges = [EdgePanel(side: .left, content: VolumeEdge(system: system)),
-                 EdgePanel(side: .right, content: BrightnessEdge(system: system))]
+        edges = [EdgePanel(side: .left, content: VolumeEdge(system: system))]
+        if system.brightnessSupported {
+            edges.append(EdgePanel(side: .right, content: BrightnessEdge(system: system)))
+        }
         edges.forEach { $0.orderFrontRegardless() }
         widget = DesktopWidgetPanel(player: player)
         widget?.orderFrontRegardless()

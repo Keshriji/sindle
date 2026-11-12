@@ -16,11 +16,14 @@ This is a Swift Package. Every Swift file lives in `Sources/` and `swift build` 
 To develop in Xcode: `xed .` on the package, or open it with File > Open > Package.swift.
 
 ## Features so far
-- Island: hover to expand, spring animation
+- Island: hover to expand, spring animation. Menu bar: Island shape (Classic / Floating) and
+  Island finish (Black Glass / Mirror), both remembered between launches.
 - Pages (tab buttons or swipe left/right): Player, synced Lyrics (LRCLIB), Weather (MET Norway)
 
 - Edge sliders: volume (left edge) and brightness (right edge). Hover to widen, drag to change.
-  Brightness uses a private Apple framework, so it may break on new macOS versions.
+  Volume goes through CoreAudio, so it is exact and immediate and needs no Automation permission.
+  Brightness uses a private Apple framework; if that framework is missing on your macOS the
+  brightness slider is hidden instead of doing nothing.
 
 - Status page (4th tab): headphone battery (L / R / Case), Mac battery and charging, Focus mode.
   A short toast appears in the island when headphones connect, charging starts or stops, or Focus turns on.
@@ -49,7 +52,6 @@ To develop in Xcode: `xed .` on the package, or open it with File > Open > Packa
 
 ## Next steps
 - Set your real email in the weather User-Agent (Weather.swift).
-- Apple Music artwork: read artwork data from AppleScript and cache it.
 - Click-through: make the panel ignore mouse events outside the pill.
 - Distribute outside the Mac App Store (Developer ID + notarization).
 
