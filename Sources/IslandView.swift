@@ -47,7 +47,7 @@ struct IslandView: View {
             }
             .onHover { hovering in
                 if !hovering && pinned { return }
-                withAnimation(spring) { open = hovering && (player.track != nil || status.headphones != nil) }
+                withAnimation(spring) { open = hovering }
             }
             .gesture(DragGesture(minimumDistance: 24).onEnded { v in
                 guard open else { return }
@@ -70,7 +70,7 @@ struct IslandView: View {
 
     @ViewBuilder private var content: some View {
         if open {
-            let t = player.track ?? Track(title: "Nothing playing")
+            let t = player.track ?? Track(title: "Nothing playing", artist: "Start Spotify or Music")
             VStack(spacing: 8) {
                 ZStack {
                     switch page {
@@ -97,8 +97,8 @@ struct IslandView: View {
                 Text(toast.text).font(.system(size: 12, weight: .medium)).foregroundStyle(.white).lineLimit(1)
             }
             .frame(height: 34).transition(.opacity)
-        } else if let t = player.track {
-            compact(t)
+        } else {
+            compact(player.track)
         }
     }
 
@@ -108,10 +108,12 @@ struct IslandView: View {
             .foregroundStyle(.white.opacity(0.9)).rotationEffect(.degrees(spin ? 360 : 0))
     }
 
-    private func compact(_ t: Track) -> some View {
+    private func compact(_ t: Track?) -> some View {
         HStack {
             reel(18); Spacer()
-            Text(t.title).font(.system(size: 11, weight: .medium)).foregroundStyle(.white)
+            Text(t?.title ?? "Nothing playing")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.white.opacity(t == nil ? 0.45 : 1))
                 .lineLimit(1).frame(maxWidth: 120)
         }.frame(height: 34)
     }
@@ -131,7 +133,7 @@ struct IslandView: View {
             ProgressView(value: min(t.position / t.duration, 1)).tint(.white)
             HStack(spacing: 28) {
                 ctl("backward.fill", "previous track")
-                ctl("playpause.fill", "playpause")
+                ctl(t.isPlaying ? "pause.fill" : "play.fill", "playpause")
                 ctl("forward.fill", "next track")
             }
         }

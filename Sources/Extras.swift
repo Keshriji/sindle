@@ -79,7 +79,7 @@ final class DiaryStore: ObservableObject {
     }
 
     func record(_ t: Track?) {
-        guard let t else { last = nil; return }
+        guard let t, t.isPlaying else { last = nil; return }
         let now = Date()
         let dt = min(now.timeIntervalSince(last ?? now), 2)
         last = now
@@ -158,8 +158,8 @@ struct GlowView: View {
                 .blur(radius: 10 + 14 * k)
                 .opacity(0.25 + 0.6 * k)
         }
-        .opacity(player.track == nil ? 0 : 1)
-        .animation(.easeOut(duration: 0.4), value: player.track == nil)
+        .opacity(player.track?.isPlaying == true ? 1 : 0)
+        .animation(.easeOut(duration: 0.4), value: player.track?.isPlaying == true)
         .ignoresSafeArea()
         .onChange(of: player.track?.artworkURL) { _, u in Task { await tint(u) } }
     }

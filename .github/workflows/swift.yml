@@ -3,14 +3,42 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+
       - name: Build app and dmg
-        run: bash scripts/package.sh
-      - uses: actions/upload-artifact@v4
+        run: |
+          set -o pipefail
+          bash scripts/package.sh 2>&1 | tee build.log
+
+      - name: Show build errors
+        if: failure()
+        run: |
+          if [ -f build.log ]; then
+            grep -E "error:|fatal error" build.log | head -n 30 | while IFS= read -r line; do
+              echo "::error title=Build error::${line}"
+            done
+          fi
+          exit 0
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Spindle-build-log
+          path: build.log
+          if-no-files-found: warn
+
+      - name: Upload dmg
+        if: success()
+        uses: actions/upload-artifact@v4
         with:
           name: Spindle-dmg
           path: build/Spindle.dmg

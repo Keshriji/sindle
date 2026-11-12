@@ -6,6 +6,7 @@ struct Track: Equatable {
     var artworkURL: URL?
     var position = 0.0, duration = 1.0
     var source = ""            // "Spotify" or "Music"
+    var isPlaying = false      // a paused track is still reported, so the island can resume it
 }
 
 /// Reads the current track from Spotify or Apple Music via AppleScript.
@@ -27,30 +28,42 @@ final class NowPlaying: ObservableObject {
         DispatchQueue.global(qos: .utility).async { [weak self] in
             guard let self else { return }
             var result: Track?
-            if self.running("com.spotify.client"), let r = self.run("""
-                tell application "Spotify"
-                  if player state is playing then
-                    return (name of current track) & "||" & (artist of current track) & "||" & (artwork url of current track) & "||" & (player position as text) & "||" & ((duration of current track) / 1000 as text)
-                  end if
-                end tell
-                """) { result = self.parse(r, source: "Spotify") }
-            if result == nil, self.running("com.apple.Music"), let r = self.run("""
-                tell application "Music"
-                  if player state is playing then
-                    return (name of current track) & "||" & (artist of current track) & "||" & "" & "||" & (player position as text) & "||" & (duration of current track as text)
-                  end if
-                end tell
-                """) { result = self.parse(r, source: "Music") }
-            DispatchQueue.main.async { if self.track != result { self.track = result } }
+            if self.running("com.spotify.client") { result = self.spotify() }
+            if result == nil, self.running("com.apple.Music") { result = self.music() }
+            let next = result
+            DispatchQueue.main.async { if self.track != next { self.track = next } }
         }
+    }
+
+    private func spotify() -> Track? {
+        let r = run("""
+        tell application "Spotify"
+          if player state is stopped then return ""
+          set t to current track
+          return (name of t) & "||" & (artist of t) & "||" & (artwork url of t) & "||" & (player position as text) & "||" & ((duration of t) / 1000 as text) & "||" & (player state as text)
+        end tell
+        """)
+        return r.flatMap { parse($0, source: "Spotify") }
+    }
+
+    private func music() -> Track? {
+        let r = run("""
+        tell application "Music"
+          if player state is stopped then return ""
+          set t to current track
+          return (name of t) & "||" & (artist of t) & "||" & "||" & (player position as text) & "||" & (duration of t as text) & "||" & (player state as text)
+        end tell
+        """)
+        return r.flatMap { parse($0, source: "Music") }
     }
 
     private func parse(_ s: String, source: String) -> Track? {
         let p = s.components(separatedBy: "||")
-        guard p.count == 5 else { return nil }
+        guard p.count >= 6, !p[0].isEmpty else { return nil }
         func num(_ x: String) -> Double { Double(x.replacingOccurrences(of: ",", with: ".")) ?? 0 }
         return Track(title: p[0], artist: p[1], artworkURL: URL(string: p[2]),
-                     position: num(p[3]), duration: max(num(p[4]), 1), source: source)
+                     position: max(num(p[3]), 0), duration: max(num(p[4]), 1),
+                     source: source, isPlaying: p[5].contains("playing"))
     }
 
     private func run(_ src: String) -> String? {

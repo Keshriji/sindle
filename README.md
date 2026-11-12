@@ -4,15 +4,16 @@ Original SwiftUI app. Shows what's playing in Spotify or Apple Music in a pill a
 hover to expand, with artwork, progress and play/pause/skip controls.
 
 ## Run it (needs a Mac, macOS 14+, Xcode 15+)
-1. Xcode > File > New > Project > macOS > App (SwiftUI), name it Spindle.
-2. Delete the generated files, drag in the four .swift files from Sources/.
-3. In Info.plist add:
-   - `NSAppleEventsUsageDescription` = "Spindle reads the current track from Spotify and Music."
-   - `NSLocationWhenInUseUsageDescription` = "Spindle uses your approximate location for the weather page."
-   - `LSUIElement` = YES (hides the Dock icon)
-4. Signing & Capabilities: turn OFF App Sandbox (or add the Apple Events temporary exception for
-   com.spotify.client and com.apple.Music).
-5. Run. Play a song in Spotify or Music, then hover the top of your screen. Approve the Automation prompt.
+This is a Swift Package. Every Swift file lives in `Sources/` and `swift build` compiles all of them;
+`Info.plist` is copied into the bundle by `scripts/package.sh` (App Sandbox is off, Apple Events allowed).
+
+1. `git clone https://github.com/Keshriji/sindle && cd sindle`
+2. `./scripts/package.sh` builds `build/Spindle.app` and `build/Spindle.dmg` (ad-hoc signed, not notarized).
+3. Open the DMG and drag Spindle into Applications. First launch: right-click > Open, or
+   `xattr -cr /Applications/Spindle.app`.
+4. Play a song in Spotify or Music, then hover the top-centre pill. Approve the Automation prompt.
+
+To develop in Xcode: `xed .` on the package, or open it with File > Open > Package.swift.
 
 ## Features so far
 - Island: hover to expand, spring animation
@@ -54,5 +55,7 @@ hover to expand, with artwork, progress and play/pause/skip controls.
 
 ## Build a .dmg without Xcode (needs a Mac, or GitHub's free macOS runner)
 - On a Mac with Xcode command line tools: `./scripts/package.sh` creates `build/Spindle.dmg`.
-- On GitHub: push this folder to a repo, open Actions > "Build Spindle dmg" > Run workflow, then download the `Spindle-dmg` artifact.
+- On GitHub: every push to `main` runs Actions > "Build Spindle dmg". Download the `Spindle-dmg`
+  artifact on success. On failure the compiler errors appear as annotations on the run and the full
+  log is uploaded as `Spindle-build-log`.
 - The app is ad-hoc signed, not notarized. After downloading, right-click > Open, or run `xattr -cr /Applications/Spindle.app`.
