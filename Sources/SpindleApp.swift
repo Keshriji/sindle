@@ -74,6 +74,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.async { self?.applySettings() }
         }.store(in: &bag)
 
+        // Without Screen Recording the glow has nothing to listen to and falls back to a steady
+        // pulse, which looks like "it does not sync". macOS also only grants it to a process that
+        // starts after the switch is flipped, so say the relaunch part out loud.
+        audio.$needsPermission.removeDuplicates().sink { [weak self] missing in
+            guard missing else { return }
+            self?.status.show(Toast(icon: "exclamationmark.triangle.fill",
+                                    text: "Allow Screen Recording, then reopen Spindle"))
+        }.store(in: &bag)
+
         applySettings()                        // window visibility only; cheap
 
         // Everything else starts on the next turn of the run loop: AppleScript, CoreAudio, location
