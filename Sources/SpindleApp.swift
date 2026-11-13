@@ -5,29 +5,40 @@ import Combine
 @main
 struct SpindleApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
-    @ObservedObject var s = SettingsStore.shared
+    @ObservedObject var s = SettingsStore.shared   // so the menu bar icon appears/disappears with the setting
     var body: some Scene {
-        MenuBarExtra("Spindle", systemImage: "opticaldisc", isInserted: $s.showMenuIcon) {
-            Toggle("Dynamic island", isOn: $s.islandOn)
+        MenuBarExtra("Spindle", systemImage: "opticaldisc", isInserted: bind(\.showMenuIcon)) {
+            Toggle("Dynamic island", isOn: bind(\.islandOn))
             Menu("Island options") {
-                Toggle("Floating oval (instead of notch)", isOn: $s.floatingIsland)
-                Toggle("Open on click (instead of hover)", isOn: $s.openOnClick)
-                Toggle("Fade out when nothing is playing", isOn: $s.hideWhenIdle)
-                Toggle("Glass background", isOn: $s.glassStyle)
-                Toggle("Lock private tabs (Face Unlock)", isOn: $s.faceLockOn)
+                Toggle("Floating oval (instead of notch)", isOn: bind(\.floatingIsland))
+                Toggle("Open on click (instead of hover)", isOn: bind(\.openOnClick))
+                Toggle("Fade out when nothing is playing", isOn: bind(\.hideWhenIdle))
+                Toggle("Glass background", isOn: bind(\.glassStyle))
+                Toggle("Lock private tabs (Face Unlock)", isOn: bind(\.faceLockOn))
             }
-            Toggle("Pop-ups", isOn: $s.toastsOn)
-            Toggle("Volume and brightness bars", isOn: $s.edgeSlidersOn)
-            Toggle("Desktop widget", isOn: $s.widgetOn)
-            Toggle("Lyrics on desktop", isOn: $s.desktopLyricsOn)
-            Toggle("Beat Glow", isOn: $s.glowOn)
-            Toggle("Lock screen lyrics", isOn: $s.lockLyricsOn)
+            Toggle("Pop-ups", isOn: bind(\.toastsOn))
+            Toggle("Volume and brightness bars", isOn: bind(\.edgeSlidersOn))
+            Toggle("Desktop widget", isOn: bind(\.widgetOn))
+            Toggle("Lyrics on desktop", isOn: bind(\.desktopLyricsOn))
+            Toggle("Beat Glow", isOn: bind(\.glowOn))
+            Toggle("Lock screen lyrics", isOn: bind(\.lockLyricsOn))
             Divider()
             Button("Settings…") { delegate.openSettings() }
             Button("Preview lock screen lyrics") { delegate.previewLock() }
             Divider()
             Button("Quit Spindle") { NSApp.terminate(nil) }
         }
+    }
+
+    /// A menu Toggle's binding is written back to the store while the menu is being rebuilt. Because
+    /// this App observes the store, that write invalidated the app, rebuilt the menu, and wrote again:
+    /// an endless loop that pegged a CPU core. Writing only real changes breaks the cycle.
+    private func bind<T: Equatable>(_ kp: ReferenceWritableKeyPath<SettingsStore, T>) -> Binding<T> {
+        Binding(get: { SettingsStore.shared[keyPath: kp] },
+                set: { new in
+                    guard SettingsStore.shared[keyPath: kp] != new else { return }
+                    SettingsStore.shared[keyPath: kp] = new
+                })
     }
 }
 
