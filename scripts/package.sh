@@ -39,24 +39,31 @@ printf 'APPL????' > "$APP/Contents/PkgInfo"
 
 echo "==> Signing"
 SIGN_ID="${SPINDLE_SIGN_IDENTITY:--}"
-SIGN_ARGS=(--force --deep)
+SIGN_KIND="adhoc"
 if [ "$SIGN_ID" = "-" ]; then
   echo "    ad-hoc: macOS sees a new code requirement on every launch, so Screen Recording"
   echo "    is granted again each time. Set SPINDLE_SIGN_IDENTITY to avoid that."
-  SIGN_ARGS+=(--sign -)
+  codesign --force --deep --sign - "$APP"
 else
   echo "    identity: $SIGN_ID"
-  SIGN_ARGS+=(--sign "$SIGN_ID" --identifier com.example.spindle --options runtime)
+  SIGN_ARGS=(--force --deep --sign "$SIGN_ID" --identifier com.example.spindle --options runtime)
   if [ -n "${SPINDLE_KEYCHAIN:-}" ]; then SIGN_ARGS+=(--keychain "$SPINDLE_KEYCHAIN"); fi
   if [ "${SPINDLE_TIMESTAMP:-0}" = "1" ]; then SIGN_ARGS+=(--timestamp); else SIGN_ARGS+=(--timestamp=none); fi
+  if codesign "${SIGN_ARGS[@]}" "$APP"; then
+    SIGN_KIND="identity"
+  else
+    echo "::warning::codesign with $SIGN_ID failed; falling back to ad-hoc signing"
+    codesign --force --deep --sign - "$APP"
+    SIGN_KIND="adhoc-fallback"
+  fi
 fi
-codesign "${SIGN_ARGS[@]}" "$APP"
 codesign --verify --strict --verbose=2 "$APP"
 
 # Write down what macOS keys the permission on. If this changes between builds the grant
 # is thrown away, so it belongs in the log and in the release notes.
 DR="$(codesign -d -r- "$APP" 2>&1 | sed -n 's/^designated => //p')"
 {
+  echo "kind: $SIGN_KIND"
   echo "identity: $SIGN_ID"
   echo "designated requirement: $DR"
   printf 'dr_sha256 %s\n' "$(printf '%s' "$DR" | shasum -a 256 | cut -d' ' -f1)"
