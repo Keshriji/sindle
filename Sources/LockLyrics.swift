@@ -129,7 +129,7 @@ struct StarField: View {
         Star(x: .random(in: 0...1), y: .random(in: 0...1), size: .random(in: 1...3.2), phase: .random(in: 0...6.28))
     }
     var body: some View {
-        TimelineView(.animation) { tl in
+        TimelineView(.periodic(from: .now, by: 1.0 / 30.0)) { tl in
             Canvas { ctx, size in
                 let t = tl.date.timeIntervalSinceReferenceDate
                 for s in stars {
@@ -165,7 +165,7 @@ struct LockRecord: View {
     let url: URL?
     var size: CGFloat = 160
     var body: some View {
-        TimelineView(.animation) { tl in
+        TimelineView(.periodic(from: .now, by: 1.0 / 30.0)) { tl in
             let angle = (tl.date.timeIntervalSinceReferenceDate * 60).truncatingRemainder(dividingBy: 360)
             ZStack {
                 Circle().fill(.black)

@@ -15,7 +15,7 @@ struct IslandView: View {
     @ObservedObject var lyrics: LyricsStore
     @ObservedObject var status: StatusStore
     let tools: Tools
-    @ObservedObject var audio: AudioLevel
+    let audio: AudioLevel      // only the equalizer observes it, so audio ticks do not re-render the island
     @ObservedObject var settings = SettingsStore.shared
     @ObservedObject var face = FaceLock.shared
     private var pinned: Bool { settings.keepOpen }

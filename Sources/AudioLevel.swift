@@ -6,18 +6,27 @@ import CoreMedia
 
 /// Listens to the Mac's system audio (not the microphone) and reports a smoothed loudness 0...1.
 /// Needs Screen Recording permission (macOS lumps system-audio capture under it). Nothing is saved or sent anywhere.
+///
+/// Audio arrives roughly every 20 ms. Publishing for every buffer (and writing the eight bands one
+/// at a time, which sends eight change notifications) is what made Spindle heavy and unresponsive,
+/// so updates are throttled to 20 a second and the bands are published in a single assignment.
 final class AudioLevel: NSObject, ObservableObject, SCStreamOutput, SCStreamDelegate {
     @Published var level = 0.0
     var lastSample = Date.distantPast         // read by the glow to know if live audio is arriving
     @Published var bands = [Double](repeating: 0, count: 8)
+
     private var stream: SCStream?
+    private var starting = false
+    private var lastPublish = Date.distantPast
     private lazy var fftSetup = vDSP_create_fftsetup(10, FFTRadix(kFFTRadix2))
 
     func start() {
+        guard stream == nil, !starting else { return }
+        starting = true
         Task {
             do {
                 let content = try await SCShareableContent.current          // triggers the permission prompt
-                guard let display = content.displays.first else { return }
+                guard let display = content.displays.first else { starting = false; return }
                 let cfg = SCStreamConfiguration()
                 cfg.capturesAudio = true
                 cfg.excludesCurrentProcessAudio = true
@@ -29,11 +38,28 @@ final class AudioLevel: NSObject, ObservableObject, SCStreamOutput, SCStreamDele
                 try await s.startCapture()
                 stream = s
             } catch { /* permission denied: the glow keeps its steady pulse */ }
+            starting = false
         }
+    }
+
+    /// Runs capture only while something actually needs it (Beat Glow or the island equalizer).
+    func setNeeded(_ on: Bool) {
+        if on { start() } else { stop() }
+    }
+
+    /// Stops system-audio capture (and with it the Screen Recording indicator in the menu bar).
+    func stop() {
+        guard let s = stream else { return }
+        stream = nil
+        Task { try? await s.stopCapture() }
     }
 
     func stream(_ s: SCStream, didOutputSampleBuffer sb: CMSampleBuffer, of type: SCStreamOutputType) {
         guard type == .audio, sb.isValid else { return }
+        let now = Date()
+        guard now.timeIntervalSince(lastPublish) >= 0.05 else { return }   // at most 20 updates a second
+        lastPublish = now
+
         var peak: Float = 0
         var bandVals: [Float] = []
         try? sb.withAudioBufferList { abl, _ in
@@ -47,15 +73,20 @@ final class AudioLevel: NSObject, ObservableObject, SCStreamOutput, SCStreamDele
                 peak = max(peak, (sum / Float(n)).squareRoot())
             }
         }
+
+        let peakSample = peak
+        let bandSample = bandVals
         DispatchQueue.main.async {
             let set = SettingsStore.shared
-            let target = min(1.0, Double(peak) * set.glowSensitivity)
+            let target = min(1.0, Double(peakSample) * set.glowSensitivity)
             self.lastSample = Date()
-            if bandVals.count == 8 {
+            if bandSample.count == 8 {
+                var next = self.bands
                 for b in 0..<8 {
-                    let v = min(1, Double(bandVals[b]) * set.eqSensitivity)
-                    self.bands[b] = v > self.bands[b] ? v : self.bands[b] * 0.82 + v * 0.18
+                    let v = min(1, Double(bandSample[b]) * set.eqSensitivity)
+                    next[b] = v > next[b] ? v : next[b] * 0.82 + v * 0.18
                 }
+                self.bands = next                                   // one change notification, not eight
             }
             self.level = target > self.level ? target : self.level * set.glowDecay + target * (1 - set.glowDecay)   // fast attack, slow decay
         }
@@ -102,7 +133,8 @@ struct EqualizerBars: View {
     var rainbow: Bool
     var gain: Double
     var body: some View {
-        TimelineView(.animation) { tl in
+        // 30 fps instead of the display's refresh rate: visually the same, a fraction of the work.
+        TimelineView(.periodic(from: .now, by: 1.0 / 30.0)) { tl in
             let t = tl.date.timeIntervalSinceReferenceDate
             let live = tl.date.timeIntervalSince(audio.lastSample) < 1.5
             HStack(alignment: .center, spacing: 2) {

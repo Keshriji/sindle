@@ -154,18 +154,25 @@ struct GlowView: View {
     private var visible: Bool { s.glowOnlyWhilePlaying ? player.track != nil : true }
 
     var body: some View {
-        TimelineView(.animation) { tl in
-            let t = tl.date.timeIntervalSinceReferenceDate
-            let p = (t * s.glowBPM / 60).truncatingRemainder(dividingBy: 1)
-            let live = tl.date.timeIntervalSince(audio.lastSample) < 1.5      // real audio if permission granted
-            let k = live ? audio.level : exp(-4 * p)
-            RoundedRectangle(cornerRadius: 24)
-                .strokeBorder(colour(t), lineWidth: s.glowThickness * (1 + 1.2 * k))
-                .blur(radius: s.glowBlur * (1 + 0.7 * k))
-                .opacity((0.25 + 0.6 * k) * s.glowIntensity)
-                .mask(edgeMask)
+        Group {
+            if visible {
+                // 30 fps rather than the display's refresh rate: this is a full-screen blurred
+                // stroke, and re-rendering it 60-120 times a second was a large part of the load.
+                TimelineView(.periodic(from: .now, by: 1.0 / 30.0)) { tl in
+                    let t = tl.date.timeIntervalSinceReferenceDate
+                    let p = (t * s.glowBPM / 60).truncatingRemainder(dividingBy: 1)
+                    let live = tl.date.timeIntervalSince(audio.lastSample) < 1.5      // real audio if permission granted
+                    let k = live ? audio.level : exp(-4 * p)
+                    RoundedRectangle(cornerRadius: 24)
+                        .strokeBorder(colour(t), lineWidth: s.glowThickness * (1 + 1.2 * k))
+                        .blur(radius: s.glowBlur * (1 + 0.7 * k))
+                        .opacity((0.25 + 0.6 * k) * s.glowIntensity)
+                        .mask(edgeMask)
+                }
+            } else {
+                Color.clear
+            }
         }
-        .opacity(visible ? 1 : 0)
         .animation(.easeOut(duration: 0.4), value: visible)
         .ignoresSafeArea()
         .onChange(of: player.track?.artworkURL) { _, u in Task { await tint(u) } }

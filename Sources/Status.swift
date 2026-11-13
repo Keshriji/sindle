@@ -28,7 +28,7 @@ final class StatusStore: ObservableObject {
             CFRunLoopAddSource(CFRunLoopGetMain(), src, .defaultMode)
         }
         timers = [
-            Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in self?.pollBluetooth() },
+            Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in self?.pollBluetooth() },   // system_profiler is expensive
             Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in self?.pollFocus() }
         ]
         DispatchQueue.main.asyncAfter(deadline: .now() + 6) { self.quiet = false }

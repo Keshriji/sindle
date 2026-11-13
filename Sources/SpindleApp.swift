@@ -61,7 +61,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.async { self?.applySettings() }
         }.store(in: &bag)
 
-        audio.start(); player.start(); weather.start(); system.start(); status.start(); tools.start()
+        player.start(); weather.start(); system.start(); status.start(); tools.start()   // audio starts in applySettings, only if something shows it
         lockLyrics?.start()
         applySettings()
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
@@ -78,6 +78,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let s = SettingsStore.shared
         set(panel, s.islandOn); edges.forEach { set($0, s.edgeSlidersOn) }
         set(widget, s.widgetOn); set(glow, s.glowOn); set(lyricsWidget, s.desktopLyricsOn)
+        audio.setNeeded(s.glowOn || s.eqOn)      // no system-audio capture when nothing shows it
     }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { openSettings(); return true }
     func openSettings() { SettingsWindow.show(preview: { [weak self] in self?.previewLock() }) }
