@@ -72,11 +72,21 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k actions "$KC" >/dev/null
           security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
 
+          # An untrusted self-signed certificate is not listed by `security find-identity -v`,
+          # so take the identity from the certificate itself: codesign accepts its SHA-1.
+          ID=""
           if [ "$KIND" = "secret" ] && [ -n "${SIGN_ID:-}" ]; then
             ID="$SIGN_ID"
           else
-            ID="$(security find-identity -v -p codesigning "$KC" \
-              | sed -n 's/^[[:space:]]*[0-9]*) \([0-9A-F]\{40\}\) .*/\1/p' | head -1)"
+            openssl pkcs12 -in "$D/id.p12" -passin "pass:$PASS" -clcerts -nokeys -out "$D/leaf.pem" 2>/dev/null || true
+            if [ -s "$D/leaf.pem" ]; then
+              ID="$(openssl x509 -in "$D/leaf.pem" -noout -fingerprint -sha1 \
+                | sed 's/^.*=//; s/://g' | tr 'A-F' 'a-f')"
+            fi
+            if [ -z "$ID" ]; then
+              ID="$(security find-identity -p codesigning "$KC" \
+                | sed -n 's/.*\([0-9A-F]\{40\}\).*/\1/p' | head -1)"
+            fi
           fi
           if [ -z "$ID" ]; then echo "::error::no code signing identity available"; exit 1; fi
 
@@ -102,7 +112,7 @@ jobs:
         if: failure()
         run: |
           if [ -f build.log ]; then
-            grep -E "error:|fatal error" build.log | head -n 30 | while IFS= read -r line; do
+            grep -E "error:|fatal error|::warning::" build.log | head -n 30 | while IFS= read -r line; do
               echo "::error title=Build error::${line}"
             done
           fi
@@ -129,9 +139,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           SIG="$(sed -n 's/^dr_sha256 //p' build/signature.txt | head -1)"
+          KIND="$(sed -n 's/^kind: //p' build/signature.txt | head -1)"
           gh release view latest-build >/dev/null 2>&1 || gh release create latest-build --title "Latest build" --notes "Automatic build"
           gh release upload latest-build build/Spindle.dmg --clobber
           gh release edit latest-build --notes "Automatic build of $GITHUB_SHA ($(date -u +%Y-%m-%dT%H:%MZ))
-          signing: ${{ steps.sign.outputs.kind }}, requirement sha256: ${SIG}"
+signing: ${KIND}
+code requirement sha256: ${SIG}"
           echo "Download: https://github.com/$GITHUB_REPOSITORY/releases/download/latest-build/Spindle.dmg"
