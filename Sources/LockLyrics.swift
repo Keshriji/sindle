@@ -90,9 +90,11 @@ final class DesktopLyricsPanel: NSPanel {
         level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopIconWindow)) + 1)
         collectionBehavior = [.canJoinAllSpaces, .stationary]
         isMovableByWindowBackground = true
+        // Rendered at its real size. Scaling a 1400 × 525 view down to 0.4 rounded every edge and
+        // pushed the text off centre, which is where the crooked desktop lyrics came from.
         contentView = NSHostingView(rootView:
             LockLyricsView(player: player, lyrics: lyrics, compact: true)
-                .frame(width: 1400, height: 525).scaleEffect(0.4).frame(width: 560, height: 210)
+                .frame(width: 560, height: 210)
                 .background(RoundedRectangle(cornerRadius: 20).fill(.black.opacity(0.35))))
     }
 }
@@ -191,6 +193,11 @@ struct LockLyricsView: View {
     @State private var burst = 0
     @State private var albumTint = Color.white
 
+    /// One factor for every size, so the desktop widget and the lock screen line up identically.
+    private var k: CGFloat { compact ? 0.42 : 1 }
+    /// Every line is laid out in the same box, whatever its length.
+    private var lyricWidth: CGFloat { compact ? 500 : 1000 }
+
     private var lyricColour: Color {
         switch s.lyricColorMode {
         case 1:  return albumTint
@@ -220,26 +227,37 @@ struct LockLyricsView: View {
                     .ignoresSafeArea()
             }
             if s.starsOn && s.lyricBackground != 1 { StarField().opacity(0.8) }
-            VStack(spacing: 14) {
-                Spacer()
+            VStack(spacing: 12 * k) {
+                Spacer(minLength: 0)
                 if !compact && (s.lockStage == 0 || (s.lockStage == 2 && s.lockRecordOn)) {
-                    LockRecord(url: t?.artworkURL, size: s.lockRecordSize).padding(.bottom, 10)
+                    LockRecord(url: t?.artworkURL, size: s.lockRecordSize).padding(.bottom, 8 * k)
                 }
                 if !compact && s.lockStage == 1 {
                     AsyncImage(url: t?.artworkURL) { $0.resizable().scaledToFill() } placeholder: { Color.gray.opacity(0.3) }
                         .frame(width: 380, height: 380).clipShape(RoundedRectangle(cornerRadius: 24)).shadow(radius: 30)
                 }
                 if compact || s.lockStage == 2 {
-                    block(t, i, cur).scaleEffect(s.lyricScale).rotationEffect(.degrees(s.lyricLean))
+                    // Fixed box: without it the block resized with every line, so the whole view
+                    // jumped sideways and upwards between lines.
+                    block(t, i, cur)
+                        .frame(width: lyricWidth, height: 150 * k)
+                        .scaleEffect(s.lyricScale)
+                        .rotationEffect(.degrees(s.lyricLean))
                         .colorMultiply(s.lyricColorMode == 0 ? Color.white : lyricColour)
                 }
                 if s.lyricStyle != 2 && s.lockNextLineOn && (compact || s.lockStage == 2) {
-                    Text(text((i ?? -1) + 1)).font(.system(size: 20, weight: .medium, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.45)).lineLimit(1)
+                    Text(text((i ?? -1) + 1)).font(.system(size: 20 * k, weight: .medium, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.45)).lineLimit(1).minimumScaleFactor(0.6)
+                        .frame(width: lyricWidth, height: 26 * k).multilineTextAlignment(.center)
                 }
-                if let t, s.lockTitleOn { Text("\(t.title) · \(t.artist)").font(.system(size: 13)).foregroundStyle(.white.opacity(0.6)) }
+                if let t, s.lockTitleOn {
+                    Text("\(t.title) · \(t.artist)").font(.system(size: 13 * k))
+                        .foregroundStyle(.white.opacity(0.6)).lineLimit(1).minimumScaleFactor(0.7)
+                        .frame(width: lyricWidth, height: 18 * k).multilineTextAlignment(.center)
+                }
             }
-            .padding(.horizontal, compact ? 20 : 80).padding(.bottom, compact ? 0 : 80)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, compact ? 20 : 80).padding(.bottom, compact ? 10 : 80)
             .animation(.spring(response: 0.5, dampingFraction: 0.75), value: i)
         }
         .ignoresSafeArea()
@@ -259,9 +277,10 @@ struct LockLyricsView: View {
 
     // Aura: soft glowing words, colour from the cover
     private func aura(_ i: Int?, _ cur: String) -> some View {
-        Text(cur).font(.system(size: 50, weight: .bold, design: .rounded)).foregroundStyle(.white)
+        Text(cur).font(.system(size: 50 * k, weight: .bold, design: .rounded)).foregroundStyle(.white)
             .shadow(color: .white.opacity(0.4), radius: 30).multilineTextAlignment(.center)
             .lineLimit(3).minimumScaleFactor(0.5).id(i ?? -1)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             .transition(.opacity.combined(with: .scale(scale: 1.05)))
     }
 
@@ -269,12 +288,13 @@ struct LockLyricsView: View {
     private func stars(_ i: Int?, _ cur: String) -> some View {
         ZStack {
             StarBurst().id(burst)
-            Text(cur).font(.system(size: 46, weight: .heavy, design: .rounded))
+            Text(cur).font(.system(size: 46 * k, weight: .heavy, design: .rounded))
                 .foregroundStyle(.white).shadow(color: .white.opacity(0.6), radius: 14)
                 .multilineTextAlignment(.center).minimumScaleFactor(0.5).lineLimit(2)
                 .id(i ?? -1)
                 .transition(.asymmetric(insertion: .scale(scale: 0.85).combined(with: .opacity), removal: .opacity))
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 
     // Big Words: one huge word at a time, paced across the line
@@ -282,11 +302,12 @@ struct LockLyricsView: View {
         let words = text(i ?? -1).split(separator: " ").map(String.init)
         let k = words.isEmpty ? 0 : Int(progress(t, i) * Double(words.count))
         let word = words.isEmpty ? "♪" : words[min(k, words.count - 1)]
-        return Text(word).font(.system(size: 110, weight: .black, design: .rounded))
+        return Text(word).font(.system(size: 110 * self.k, weight: .black, design: .rounded))
             .foregroundStyle(.white).shadow(color: .white.opacity(0.5), radius: 16)
-            .minimumScaleFactor(0.4).lineLimit(1)
+            .minimumScaleFactor(0.4).lineLimit(1).multilineTextAlignment(.center)
             .offset(x: CGFloat((k * 73) % 100 - 50) * s.lyricScatter * 3, y: CGFloat((k * 41) % 100 - 50) * s.lyricScatter * 1.2)
             .id((i ?? -1) * 1000 + k)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             .transition(.asymmetric(insertion: .scale(scale: 1.3).combined(with: .opacity), removal: .opacity))
             .animation(.spring(response: 0.3, dampingFraction: 0.7), value: k)
     }
@@ -294,14 +315,16 @@ struct LockLyricsView: View {
     // Lens: the current line is sharp; neighbouring lines fade and blur away
     private func lens(_ i: Int?) -> some View {
         let idx = i ?? -1
-        return VStack(spacing: 10) {
+        return VStack(spacing: 10 * k) {
             ForEach(-2...2, id: \.self) { d in
-                Text(text(idx + d)).lineLimit(1).minimumScaleFactor(0.5)
-                    .font(.system(size: d == 0 ? 42 : 24, weight: d == 0 ? .heavy : .medium, design: .rounded))
+                Text(text(idx + d)).lineLimit(1).minimumScaleFactor(0.5).multilineTextAlignment(.center)
+                    .font(.system(size: (d == 0 ? 42 : 24) * k, weight: d == 0 ? .heavy : .medium, design: .rounded))
                     .foregroundStyle(.white.opacity(d == 0 ? 1 : 0.55 - Double(abs(d)) * 0.15))
                     .blur(radius: CGFloat(abs(d)) * 2.5)
+                    .frame(maxWidth: .infinity)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         .animation(.spring(response: 0.5, dampingFraction: 0.8), value: idx)
     }
 
@@ -311,9 +334,10 @@ struct LockLyricsView: View {
         return TimelineView(.periodic(from: .now, by: 0.5)) { tl in
             let on = Int(tl.date.timeIntervalSinceReferenceDate * 2) % 2 == 0
             Text("> " + String(cur.prefix(n)) + (on ? "▌" : " "))
-                .font(.system(size: 30, weight: .medium, design: .monospaced))
+                .font(.system(size: 30 * k, weight: .medium, design: .monospaced))
                 .foregroundStyle(Color.green).shadow(color: .green.opacity(0.7), radius: 8)
                 .lineLimit(2).multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         }
     }
 }
@@ -326,7 +350,8 @@ enum AlbumColor {
         var px = [UInt8](repeating: 0, count: 4)
         px.withUnsafeMutableBytes { buf in
             let ctx = CGContext(data: buf.baseAddress, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
-                                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+                                space: CGColorSpaceCreateDeviceRGB(),
+                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
             ctx?.interpolationQuality = .medium
             ctx?.draw(cg, in: CGRect(x: 0, y: 0, width: 1, height: 1))
         }
