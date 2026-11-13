@@ -13,7 +13,87 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # One identity for every build. An ad-hoc signature changes its code hash each time,
+      # so macOS sees a different app and throws the Screen Recording grant away.
+      - name: Restore signing identity
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/spindle-signing
+          key: spindle-signing-identity-v1
+
+      - name: Import signing identity
+        id: sign
+        env:
+          CERT_P12: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          CERT_PASS: ${{ secrets.MACOS_CERT_PASSWORD }}
+          SIGN_ID: ${{ secrets.MACOS_SIGN_IDENTITY }}
+        run: |
+          set -euo pipefail
+          D="$RUNNER_TEMP/spindle-signing"
+          KC="$RUNNER_TEMP/spindle-signing.keychain-db"
+          mkdir -p "$D"
+
+          security create-keychain -p actions "$KC" || true
+          security set-keychain-settings -lut 21600 "$KC"
+          security unlock-keychain -p actions "$KC"
+
+          if [ -n "${CERT_P12:-}" ]; then
+            echo "==> Using the certificate from repository secrets"
+            printf '%s' "$CERT_P12" | base64 --decode > "$D/id.p12"
+            PASS="${CERT_PASS:-}"
+            KIND="secret"
+          else
+            echo "==> Using the stored self-signed identity"
+            if [ ! -f "$D/id.p12" ]; then
+              echo "==> First run: creating a self-signed code signing certificate"
+              printf '%s\n' \
+                '[ req ]' \
+                'distinguished_name = dn' \
+                'x509_extensions = v3_cs' \
+                'prompt = no' \
+                '[ dn ]' \
+                'CN = Spindle Self Signed' \
+                '[ v3_cs ]' \
+                'basicConstraints = critical,CA:false' \
+                'keyUsage = critical,digitalSignature' \
+                'extendedKeyUsage = critical,codeSigning' > "$D/openssl.cnf"
+              openssl req -x509 -newkey rsa:2048 -nodes \
+                -keyout "$D/key.pem" -out "$D/cert.pem" \
+                -days 3650 -config "$D/openssl.cnf"
+              openssl pkcs12 -export -inkey "$D/key.pem" -in "$D/cert.pem" \
+                -out "$D/id.p12" -passout pass:spindle -name "Spindle Self Signed"
+            fi
+            PASS="spindle"
+            KIND="selfsigned"
+          fi
+
+          security import "$D/id.p12" -k "$KC" -P "$PASS" \
+            -T /usr/bin/codesign -T /usr/bin/security >/dev/null
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k actions "$KC" >/dev/null
+          security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+
+          if [ "$KIND" = "secret" ] && [ -n "${SIGN_ID:-}" ]; then
+            ID="$SIGN_ID"
+          else
+            ID="$(security find-identity -v -p codesigning "$KC" \
+              | sed -n 's/^[[:space:]]*[0-9]*) \([0-9A-F]\{40\}\) .*/\1/p' | head -1)"
+          fi
+          if [ -z "$ID" ]; then echo "::error::no code signing identity available"; exit 1; fi
+
+          echo "identity=$ID" >> "$GITHUB_OUTPUT"
+          echo "keychain=$KC" >> "$GITHUB_OUTPUT"
+          echo "kind=$KIND" >> "$GITHUB_OUTPUT"
+          if [ "$KIND" = "secret" ]; then echo "timestamp=1" >> "$GITHUB_OUTPUT"; else echo "timestamp=0" >> "$GITHUB_OUTPUT"; fi
+          echo "==> Signing as $KIND ($ID)"
+
       - name: Build app and dmg
+        env:
+          SPINDLE_SIGN_IDENTITY: ${{ steps.sign.outputs.identity }}
+          SPINDLE_KEYCHAIN: ${{ steps.sign.outputs.keychain }}
+          SPINDLE_TIMESTAMP: ${{ steps.sign.outputs.timestamp }}
+          SPINDLE_NOTARY_APPLE_ID: ${{ secrets.APPLE_ID }}
+          SPINDLE_NOTARY_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          SPINDLE_NOTARY_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
           set -o pipefail
           bash scripts/package.sh 2>&1 | tee build.log
@@ -49,7 +129,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          SIG="$(sed -n 's/^dr_sha256 //p' build/signature.txt | head -1)"
           gh release view latest-build >/dev/null 2>&1 || gh release create latest-build --title "Latest build" --notes "Automatic build"
           gh release upload latest-build build/Spindle.dmg --clobber
-          gh release edit latest-build --notes "Automatic build of $GITHUB_SHA ($(date -u +%Y-%m-%dT%H:%MZ))"
+          gh release edit latest-build --notes "Automatic build of $GITHUB_SHA ($(date -u +%Y-%m-%dT%H:%MZ))
+          signing: ${{ steps.sign.outputs.kind }}, requirement sha256: ${SIG}"
           echo "Download: https://github.com/$GITHUB_REPOSITORY/releases/download/latest-build/Spindle.dmg"
