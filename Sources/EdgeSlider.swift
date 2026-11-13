@@ -12,11 +12,10 @@ struct EdgeSlider: View {
 
     var body: some View {
         let wide = hover || dragging
-        let filled: CGFloat = height * CGFloat(min(max(value, 0), 1))
-        return ZStack(alignment: .bottom) {
+        ZStack(alignment: .bottom) {
             Rectangle().fill(Color.black.opacity(0.8))
-            Rectangle().fill(Color.white.opacity(0.92)).frame(height: filled)
-            Image(systemName: icon).font(.system(size: 13, weight: .medium))
+            Rectangle().fill(Color.white.opacity(0.92)).frame(height: height * value)
+            Image(systemName: icon).font(.system(size: 13, weight: .medium)).symbolEffect(.bounce, value: icon)
                 .foregroundStyle(value > 0.12 ? Color.black : Color.white)
                 .padding(.bottom, 9).opacity(wide ? 1 : 0)
         }
@@ -27,7 +26,7 @@ struct EdgeSlider: View {
         .gesture(DragGesture(minimumDistance: 0)
             .onChanged { g in
                 dragging = true
-                let fraction = Double(min(max(g.location.y / height, 0), 1))
+                let fraction: Double = Double(min(max(g.location.y / height, 0), 1))
                 onChange(1.0 - fraction)
             }
             .onEnded { _ in dragging = false })

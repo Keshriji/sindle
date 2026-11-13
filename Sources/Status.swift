@@ -5,7 +5,7 @@ struct Headphones: Equatable {
     var name: String
     var left: Int?, right: Int?, caseLevel: Int?, main: Int?
 }
-struct Toast: Equatable { let icon: String; let text: String }
+struct Toast: Equatable { let icon: String; let text: String; var battery: Int? = nil; var charging = false }
 
 /// Headphone battery, Mac battery/charging, and Focus mode. Shows a short toast in the island on changes.
 final class StatusStore: ObservableObject {
@@ -35,7 +35,7 @@ final class StatusStore: ObservableObject {
     }
 
     func show(_ t: Toast) {
-        guard !quiet else { return }
+        guard !quiet, SettingsStore.shared.toastsOn else { return }
         toastWork?.cancel()
         toast = t
         let w = DispatchWorkItem { [weak self] in self?.toast = nil }
@@ -52,14 +52,16 @@ final class StatusStore: ObservableObject {
             if let d = IOPSGetPowerSourceDescription(info, ps)?.takeUnretainedValue() as? [String: Any],
                let cur = d[kIOPSCurrentCapacityKey] as? Int { pct = cur }
         }
-        let type = IOPSGetProvidingPowerSourceType(info)?.takeUnretainedValue() as String?
-        let ac = type == kIOPSACPowerValue
+        var type = ""
+        if let t = IOPSGetProvidingPowerSourceType(info)?.takeUnretainedValue() { type = t as String }
+        let ac = (type == kIOPSACPowerValue)
         let was = charging
         batteryPercent = pct
         charging = ac
         if ac != was {
             show(Toast(icon: ac ? "bolt.fill" : "battery.50",
-                       text: ac ? "Charging \(pct ?? 0)%" : "On battery \(pct ?? 0)%"))
+                       text: ac ? "Charging \(pct ?? 0)%" : "On battery \(pct ?? 0)%",
+                       battery: pct ?? 0, charging: ac))
         }
     }
 

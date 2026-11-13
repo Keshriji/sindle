@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 
-struct Wall: Identifiable { let id: Int; let name: String; let hex: [UInt32] }
+struct Wall: Identifiable { let id: Int; let name: String; let hex: [UInt32]; var variant = 0 }
 
 extension NSColor {
     convenience init(hex: UInt32) {
@@ -23,7 +23,7 @@ struct SeededRNG: RandomNumberGenerator {
 
 /// Wallpapers are painted in code from a colour palette and a seed, so they are original and cost no download.
 enum Walls {
-    static let all: [Wall] = [
+    static let base: [Wall] = [
         Wall(id: 1, name: "Dusk",   hex: [0x1b1b3a, 0x693668, 0xa74482, 0xf84aa7]),
         Wall(id: 2, name: "Lagoon", hex: [0x06283d, 0x1363df, 0x47b5ff, 0xdff6ff]),
         Wall(id: 3, name: "Ember",  hex: [0x2b0a0a, 0x8c1c13, 0xe4572e, 0xffc15e]),
@@ -38,6 +38,13 @@ enum Walls {
         Wall(id: 12, name: "Night", hex: [0x000000, 0x0d1b2a, 0x1b263b, 0x415a77]),
     ]
 
+    /// Each palette in four painted styles: soft blobs, oil dabs, diagonal bands, spotlight.
+    static let all: [Wall] = base.flatMap { b in
+        [("", 0), (" Oil", 1), (" Bands", 2), (" Spot", 3)].map {
+            Wall(id: b.id * 10 + $0.1, name: b.name + $0.0, hex: b.hex, variant: $0.1)
+        }
+    }
+
     private static var thumbCache: [Int: NSImage] = [:]
     static func thumb(_ w: Wall) -> NSImage {
         if let t = thumbCache[w.id] { return t }
@@ -51,14 +58,26 @@ enum Walls {
             let colors = w.hex.map { NSColor(hex: $0) }
             ctx.setFillColor(colors[0].cgColor); ctx.fill(rect)
             var rng = SeededRNG(s: UInt64(w.id) &* 7919 &+ 17)
-            for i in 0..<16 {
+            let counts = [16, 70, 14, 6]
+            let radii: [(CGFloat, CGFloat)] = [(0.25, 0.6), (0.06, 0.16), (0.2, 0.5), (0.3, 0.7)]
+            if w.variant == 2 {
+                ctx.saveGState(); ctx.translateBy(x: size.width / 2, y: size.height / 2)
+                ctx.rotate(by: .pi / 7); ctx.scaleBy(x: 2.6, y: 0.45); ctx.translateBy(x: -size.width / 2, y: -size.height / 2)
+            }
+            for i in 0..<counts[w.variant] {
                 let c = colors[i % colors.count]
                 let p = CGPoint(x: .random(in: 0...size.width, using: &rng), y: .random(in: 0...size.height, using: &rng))
-                let r = CGFloat.random(in: 0.25...0.6, using: &rng) * max(size.width, size.height)
+                let r = CGFloat.random(in: radii[w.variant].0...radii[w.variant].1, using: &rng) * max(size.width, size.height)
                 let g = CGGradient(colorsSpace: cs,
                                    colors: [c.withAlphaComponent(0.85).cgColor, c.withAlphaComponent(0).cgColor] as CFArray,
                                    locations: [0, 1])!
                 ctx.drawRadialGradient(g, startCenter: p, startRadius: 0, endCenter: p, endRadius: r, options: [])
+            }
+            if w.variant == 2 { ctx.restoreGState() }
+            if w.variant == 3 {
+                let mid = CGPoint(x: size.width / 2, y: size.height / 2)
+                let v = CGGradient(colorsSpace: cs, colors: [NSColor.clear.cgColor, NSColor.black.withAlphaComponent(0.6).cgColor] as CFArray, locations: [0.35, 1])!
+                ctx.drawRadialGradient(v, startCenter: mid, startRadius: 0, endCenter: mid, endRadius: max(size.width, size.height) * 0.75, options: [])
             }
             return true
         }

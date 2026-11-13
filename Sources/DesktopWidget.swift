@@ -16,14 +16,14 @@ final class DesktopWidgetPanel: NSPanel {
 
 struct DesktopWidgetView: View {
     @ObservedObject var player: NowPlaying
-    @State private var style = 0
+    @State private var style = SettingsStore.shared.widgetStyle
     private var playing: Bool { player.track != nil }
 
     var body: some View {
         ZStack { Group { if style == 0 { turntable } else if style == 1 { sleeve } else { aura } } }
             .frame(width: 220, height: 220)
             .contentShape(Rectangle())
-            .onTapGesture { withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) { style = (style + 1) % 3 } }
+            .onTapGesture { withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) { style = (style + 1) % 3; SettingsStore.shared.widgetStyle = style } }
     }
 
     private var cover: some View {

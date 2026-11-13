@@ -3,9 +3,9 @@ import AppKit
 
 /// Borderless, transparent window pinned to the top-centre of the screen.
 final class IslandPanel: NSPanel {
-    static let size = CGSize(width: 420, height: 190)
+    static let size = CGSize(width: 560, height: 250)
 
-    init(player: NowPlaying, weather: WeatherStore, lyrics: LyricsStore, status: StatusStore, tools: Tools, look: Look) {
+    init(player: NowPlaying, weather: WeatherStore, lyrics: LyricsStore, status: StatusStore, tools: Tools, audio: AudioLevel) {
         super.init(contentRect: .zero,
                    styleMask: [.borderless, .nonactivatingPanel],
                    backing: .buffered, defer: false)
@@ -15,7 +15,7 @@ final class IslandPanel: NSPanel {
         level = .statusBar
         collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
         isMovable = false
-        contentView = NSHostingView(rootView: IslandView(player: player, weather: weather, lyrics: lyrics, status: status, tools: tools, look: look))
+        contentView = NSHostingView(rootView: IslandView(player: player, weather: weather, lyrics: lyrics, status: status, tools: tools, audio: audio))
         reposition()
     }
 

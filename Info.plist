@@ -12,5 +12,6 @@
   <key>LSUIElement</key><true/>
   <key>NSPrincipalClass</key><string>NSApplication</string>
   <key>NSAppleEventsUsageDescription</key><string>Spindle reads the current track from Spotify and Music.</string>
+  <key>NSCameraUsageDescription</key><string>Spindle shows your camera in the island mirror. It never records.</string>
   <key>NSLocationWhenInUseUsageDescription</key><string>Spindle uses your approximate location for the weather page.</string>
 </dict></plist>

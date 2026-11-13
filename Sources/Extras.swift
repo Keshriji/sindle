@@ -65,6 +65,7 @@ struct TypingPage: View {
 }
 
 // MARK: Listening diary (stays on this Mac)
+struct DayBar { let label: String; let seconds: Double; let key: String }
 struct DayLog: Codable { var seconds = 0.0; var top: [String: Double] = [:] }
 
 final class DiaryStore: ObservableObject {
@@ -79,7 +80,7 @@ final class DiaryStore: ObservableObject {
     }
 
     func record(_ t: Track?) {
-        guard let t, t.isPlaying else { last = nil; return }
+        guard let t else { last = nil; return }
         let now = Date()
         let dt = min(now.timeIntervalSince(last ?? now), 2)
         last = now
@@ -93,11 +94,11 @@ final class DiaryStore: ObservableObject {
         if ticks % 15 == 0 { UserDefaults.standard.set(try? JSONEncoder().encode(days), forKey: "spindle.diary") }
     }
 
-    var week: [(label: String, seconds: Double, key: String)] {
+    var week: [DayBar] {
         (0..<7).reversed().map { i in
             let day = Calendar.current.date(byAdding: .day, value: -i, to: Date())!
             let k = Self.fmt.string(from: day)
-            return (day.formatted(.dateTime.weekday(.narrow)), days[k]?.seconds ?? 0, k)
+            return DayBar(label: day.formatted(.dateTime.weekday(.narrow)), seconds: days[k]?.seconds ?? 0, key: k)
         }
     }
     var topTrack: String? {
@@ -133,35 +134,60 @@ struct DiaryPage: View {
 
 // MARK: Beat Glow (a pulsing light around the screen edge, tinted by the album cover)
 final class GlowPanel: NSPanel {
-    init(player: NowPlaying) {
+    init(player: NowPlaying, audio: AudioLevel) {
         super.init(contentRect: NSScreen.main?.frame ?? .zero, styleMask: [.borderless, .nonactivatingPanel],
                    backing: .buffered, defer: false)
         isOpaque = false; backgroundColor = .clear; hasShadow = false
         ignoresMouseEvents = true
         level = .floating
         collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
-        contentView = NSHostingView(rootView: GlowView(player: player))
+        contentView = NSHostingView(rootView: GlowView(player: player, audio: audio))
     }
 }
 
 struct GlowView: View {
     @ObservedObject var player: NowPlaying
-    @State private var color = Color.white
-    private let bpm = 100.0      // steady pulse; real audio reaction would need ScreenCaptureKit
+    @ObservedObject var audio: AudioLevel
+    @ObservedObject var s = SettingsStore.shared
+    @State private var albumColor = Color.white
+
+    private var visible: Bool { s.glowOnlyWhilePlaying ? player.track != nil : true }
 
     var body: some View {
         TimelineView(.animation) { tl in
-            let p = (tl.date.timeIntervalSinceReferenceDate * bpm / 60).truncatingRemainder(dividingBy: 1)
-            let k = exp(-4 * p)
+            let t = tl.date.timeIntervalSinceReferenceDate
+            let p = (t * s.glowBPM / 60).truncatingRemainder(dividingBy: 1)
+            let live = tl.date.timeIntervalSince(audio.lastSample) < 1.5      // real audio if permission granted
+            let k = live ? audio.level : exp(-4 * p)
             RoundedRectangle(cornerRadius: 24)
-                .strokeBorder(color, lineWidth: 6 + 10 * k)
-                .blur(radius: 10 + 14 * k)
-                .opacity(0.25 + 0.6 * k)
+                .strokeBorder(colour(t), lineWidth: s.glowThickness * (1 + 1.2 * k))
+                .blur(radius: s.glowBlur * (1 + 0.7 * k))
+                .opacity((0.25 + 0.6 * k) * s.glowIntensity)
+                .mask(edgeMask)
         }
-        .opacity(player.track?.isPlaying == true ? 1 : 0)
-        .animation(.easeOut(duration: 0.4), value: player.track?.isPlaying == true)
+        .opacity(visible ? 1 : 0)
+        .animation(.easeOut(duration: 0.4), value: visible)
         .ignoresSafeArea()
         .onChange(of: player.track?.artworkURL) { _, u in Task { await tint(u) } }
+    }
+
+    private func colour(_ t: Double) -> Color {
+        switch s.glowColorMode {
+        case 1:  return Color(red: s.glowR, green: s.glowG, blue: s.glowB)
+        case 2:  return Color(hue: (t * 0.08).truncatingRemainder(dividingBy: 1), saturation: 0.85, brightness: 1)
+        default: return albumColor
+        }
+    }
+
+    @ViewBuilder private var edgeMask: some View {
+        switch s.glowEdges {
+        case 1:  LinearGradient(colors: [.white, .clear], startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.3))
+        case 2:  LinearGradient(colors: [.white, .clear], startPoint: .bottom, endPoint: UnitPoint(x: 0.5, y: 0.7))
+        case 3:  LinearGradient(stops: [.init(color: .white, location: 0), .init(color: .clear, location: 0.18),
+                                        .init(color: .clear, location: 0.82), .init(color: .white, location: 1)],
+                                startPoint: .leading, endPoint: .trailing)
+        default: Color.white
+        }
     }
 
     private func tint(_ url: URL?) async {
@@ -177,6 +203,6 @@ struct GlowView: View {
         }
         let r = Double(px[0]) / 255, g = Double(px[1]) / 255, b = Double(px[2]) / 255
         let m = max(r, g, b, 1.0 / 255)                       // brighten dark covers so the glow stays visible
-        await MainActor.run { color = Color(red: r / m, green: g / m, blue: b / m) }
+        await MainActor.run { albumColor = Color(red: r / m, green: g / m, blue: b / m) }
     }
 }
