@@ -145,6 +145,19 @@ struct IslandView: View {
             .foregroundStyle(.white.opacity(0.9)).rotationEffect(.degrees(spin ? 360 : 0))
     }
 
+    /// Album cover cut like a little record, so the left of the notch turns while the music plays.
+    private func disc(_ t: Track, _ size: CGFloat) -> some View {
+        ZStack {
+            AsyncImage(url: t.artworkURL) { $0.resizable().scaledToFill() } placeholder: { Color.gray.opacity(0.3) }
+                .frame(width: size, height: size).clipShape(Circle())
+            Circle().fill(.black).frame(width: size * 0.18)      // spindle hole
+        }
+        .frame(width: size, height: size)
+        .overlay(Circle().stroke(.white.opacity(0.22), lineWidth: 0.5))
+        .clipShape(Circle())
+        .rotationEffect(.degrees(spin ? 360 : 0))
+    }
+
     private func peekView(_ t: Track) -> some View {
         HStack(spacing: 10) {
             AsyncImage(url: t.artworkURL) { $0.resizable().scaledToFill() } placeholder: { Color.gray.opacity(0.3) }
@@ -160,14 +173,19 @@ struct IslandView: View {
     }
 
     private func compact(_ t: Track) -> some View {
-        HStack {
+        // Left: the cover turning like a record. Right: the equalizer. No title here, which is what
+        // used to show up as stray text beside the bars.
+        HStack(spacing: 0) {
+            disc(t, 24)
+            Spacer(minLength: 8)
             if settings.eqOn {
                 EqualizerBars(audio: audio, playing: true, count: settings.eqBars, rainbow: settings.eqColorMode == 1, gain: settings.eqSensitivity)
-            } else { reel(18) }
-            Spacer()
-            Text(t.title).font(.system(size: 11, weight: .medium)).foregroundStyle(.white)
-                .lineLimit(1).frame(maxWidth: 120)
-        }.frame(height: 34)
+            } else {
+                Image(systemName: "waveform").font(.system(size: 12)).foregroundStyle(.white.opacity(0.5))
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 34)
     }
 
     private func playerPage(_ t: Track) -> some View {
