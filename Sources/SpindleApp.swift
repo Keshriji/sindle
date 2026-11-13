@@ -45,6 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ n: Notification) {
         NSApp.setActivationPolicy(.accessory)
         panel = IslandPanel(player: player, weather: weather, lyrics: lyrics, status: status, tools: tools, audio: audio)
+        panel?.orderFrontRegardless()          // first thing on screen, before any service starts
         edges = [EdgePanel(side: .left, content: VolumeEdge(system: system)),
                  EdgePanel(side: .right, content: BrightnessEdge(system: system))]
         widget = DesktopWidgetPanel(player: player)
@@ -53,17 +54,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         lockLyrics = LockLyrics(player: player, lyrics: lyrics)
         tools.clock.onRing = { [status] in status.show(Toast(icon: "alarm.fill", text: "Alarm")) }
 
-        player.$track.sink { [tools, lyrics] t in
+        player.$track.sink { [tools, lyrics, audio] t in
             tools.diary.record(t)
+            audio.setMusicPlaying(t != nil)
             if let t { lyrics.load(title: t.title, artist: t.artist) }
         }.store(in: &bag)
         SettingsStore.shared.objectWillChange.sink { [weak self] _ in
             DispatchQueue.main.async { self?.applySettings() }
         }.store(in: &bag)
 
-        player.start(); weather.start(); system.start(); status.start(); tools.start()   // audio starts in applySettings, only if something shows it
-        lockLyrics?.start()
-        applySettings()
+        applySettings()                        // window visibility only; cheap
+
+        // Everything else starts on the next turn of the run loop: AppleScript, CoreAudio, location
+        // and the accessibility check all take time, and none of them may hold up the first frame.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+            guard let self else { return }
+            self.player.start(); self.weather.start(); self.system.start(); self.status.start(); self.tools.start()
+            self.lockLyrics?.start()
+        }
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
                                                object: nil, queue: .main) { [weak self] _ in
             self?.panel?.reposition(); self?.edges.forEach { $0.reposition() }
@@ -78,7 +86,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let s = SettingsStore.shared
         set(panel, s.islandOn); edges.forEach { set($0, s.edgeSlidersOn) }
         set(widget, s.widgetOn); set(glow, s.glowOn); set(lyricsWidget, s.desktopLyricsOn)
-        audio.setNeeded(s.glowOn || s.eqOn)      // no system-audio capture when nothing shows it
+        audio.setWanted(s.glowOn || s.eqOn)      // no system-audio capture when nothing shows it
     }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { openSettings(); return true }
     func openSettings() { SettingsWindow.show(preview: { [weak self] in self?.previewLock() }) }

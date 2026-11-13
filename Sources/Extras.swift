@@ -14,13 +14,29 @@ final class TypingStore: ObservableObject {
     private var timer: Timer?
 
     func start() {
-        trusted = AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
+        // Never ask here. AXIsProcessTrustedWithOptions(prompt:) blocks the calling thread while the
+        // system consent sheet is up, and this runs during launch: that is what hangs the app.
+        trusted = AXIsProcessTrusted()
         monitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] e in
             guard let self, !e.isARepeat else { return }
             self.stamps.append(Date())
             if self.sounds { NSSound(named: "Tink")?.play() }
         }
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.update() }
+    }
+
+    /// Asked for from the Typing page. The prompt itself runs off the main thread, so a slow TCC
+    /// lookup can never freeze the app.
+    func requestTrust() {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let granted = AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
+            DispatchQueue.main.async {
+                self.trusted = granted
+                if !granted, let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+                    NSWorkspace.shared.open(url)
+                }
+            }
+        }
     }
 
     private func update() {
@@ -56,8 +72,8 @@ struct TypingPage: View {
                         .padding(.horizontal, 10).padding(.vertical, 4).background(Capsule().fill(.white.opacity(0.14)))
                 }.buttonStyle(.plain)
                 if !typing.trusted {
-                    Text("Allow Spindle under Accessibility to count keys.")
-                        .font(.system(size: 9)).foregroundStyle(.orange)
+                    Button("Allow under Accessibility") { typing.requestTrust() }
+                        .font(.system(size: 9)).foregroundStyle(.orange).buttonStyle(.plain)
                 }
             }
         }.frame(maxWidth: .infinity, maxHeight: .infinity)

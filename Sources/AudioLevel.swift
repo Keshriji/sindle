@@ -42,9 +42,24 @@ final class AudioLevel: NSObject, ObservableObject, SCStreamOutput, SCStreamDele
         }
     }
 
-    /// Runs capture only while something actually needs it (Beat Glow or the island equalizer).
-    func setNeeded(_ on: Bool) {
-        if on { start() } else { stop() }
+    private var wanted = false
+    private var hasMusic = false
+
+    /// Capture runs only when something shows it (Beat Glow or the island equalizer) *and* music is
+    /// playing. Starting it during launch meant a Screen Recording consent sheet before the island
+    /// was usable, which looks exactly like a frozen app.
+    func setWanted(_ on: Bool) {
+        wanted = on
+        refreshState()
+    }
+
+    func setMusicPlaying(_ on: Bool) {
+        hasMusic = on
+        refreshState()
+    }
+
+    private func refreshState() {
+        if wanted && hasMusic { start() } else if !wanted { stop() }
     }
 
     /// Stops system-audio capture (and with it the Screen Recording indicator in the menu bar).

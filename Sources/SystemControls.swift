@@ -161,14 +161,22 @@ final class SystemControls: ObservableObject {
     }
 
     private func syncVolume() {
-        guard Date() > volQuiet, let v = Self.readVolume() else { return }
-        if abs(Double(v) - volume) > 0.005 { volume = Double(v) }
+        // CoreAudio queries talk to coreaudiod, which can be slow enough for a Bluetooth device to
+        // stall the main thread, so they run on our own queue and only publish back on main.
+        queue.async { [weak self] in
+            guard let self else { return }
+            guard let v = Self.readVolume() else { return }
+            DispatchQueue.main.async {
+                guard Date() > self.volQuiet else { return }
+                if abs(Double(v) - self.volume) > 0.005 { self.volume = Double(v) }
+            }
+        }
     }
 
     func setVolume(_ x: Double) {
         volQuiet = Date().addingTimeInterval(0.5)
         volume = x
-        Self.writeVolume(Float(x))
+        queue.async { Self.writeVolume(Float(x)) }
     }
 
     // MARK: brightness
