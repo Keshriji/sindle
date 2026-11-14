@@ -118,6 +118,24 @@ jobs:
           fi
           exit 0
 
+      # Put the log somewhere readable from outside the run so a red build can be diagnosed.
+      - name: Publish build log
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [ -f build.log ] || exit 0
+          D="$RUNNER_TEMP/ci-log"
+          mkdir -p "$D"
+          cp build.log "$D/build.log"
+          cd "$D"
+          git init -q
+          git checkout -q -b ci-log
+          git add build.log
+          git -c user.name=github-actions -c user.email=actions@github.com commit -qm "Build log for $GITHUB_SHA"
+          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" ci-log
+
       - name: Upload build log
         if: always()
         uses: actions/upload-artifact@v4
@@ -144,7 +162,7 @@ jobs:
           KIND="$(sed -n 's/^kind: //p' build/signature.txt | head -1)"
           gh release view latest-build >/dev/null 2>&1 || gh release create latest-build --title "Latest build" --notes "Automatic build"
           gh release upload latest-build build/Spindle.dmg --clobber
-          gh release edit latest-build --notes "Automatic build of $GITHUB_SHA ($(date -u +%Y-%m-%dT%H:%MZ))
-signing: ${KIND}
-code requirement sha256: ${SIG}"
+          NOTES="$(printf 'Automatic build of %s (%s)\nsigning: %s\ncode requirement sha256: %s' \
+            "$GITHUB_SHA" "$(date -u +%Y-%m-%dT%H:%MZ)" "$KIND" "$SIG")"
+          gh release edit latest-build --notes "$NOTES"
           echo "Download: https://github.com/$GITHUB_REPOSITORY/releases/download/latest-build/Spindle.dmg"
