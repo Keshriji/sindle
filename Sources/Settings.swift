@@ -48,6 +48,7 @@ final class SettingsStore: ObservableObject {
     @Published var lockControlsOn: Bool { didSet { put("lockControlsOn", lockControlsOn) } }
     @Published var lyricBackground: Int { didSet { put("lyricBackground", lyricBackground) } } // 0 dark, 1 album blur
     @Published var lyricScatter: Double { didSet { put("lyricScatter", lyricScatter) } }
+    @Published var lyricOffset: Double  { didSet { put("lyricOffset", lyricOffset) } }       // seconds the lyrics run early
     @Published var lyricLean: Double    { didSet { put("lyricLean", lyricLean) } }
     @Published var lyricColorMode: Int  { didSet { put("lyricColorMode", lyricColorMode) } }   // 0 white, 1 album, 2 custom
     @Published var lyricR: Double       { didSet { put("lyricR", lyricR) } }
@@ -97,7 +98,7 @@ final class SettingsStore: ObservableObject {
         lockStage = Self.int("lockStage", 2); lockDim = Self.num("lockDim", 0.6); lockRecordSize = Self.num("lockRecordSize", 160)
         lockTitleOn = Self.flag("lockTitleOn", true); lockNextLineOn = Self.flag("lockNextLineOn", true)
         lockControlsOn = Self.flag("lockControlsOn", true); lyricBackground = Self.int("lyricBackground", 0)
-        lyricScatter = Self.num("lyricScatter", 0.3); lyricLean = Self.num("lyricLean", 0)
+        lyricOffset = Self.num("lyricOffset", 0.35); lyricScatter = Self.num("lyricScatter", 0.3); lyricLean = Self.num("lyricLean", 0)
         lyricColorMode = Self.int("lyricColorMode", 0)
         lyricR = Self.num("lyricR", 1); lyricG = Self.num("lyricG", 1); lyricB = Self.num("lyricB", 1)
         faceLockOn = Self.flag("faceLockOn", false); fahrenheit = Self.flag("fahrenheit", false)
@@ -214,6 +215,7 @@ struct SettingsView: View {
                     Text("Stars").tag(0); Text("Big Words").tag(1); Text("Lens").tag(2); Text("Terminal").tag(3); Text("Aura").tag(4)
                 }
                 slider("Text size", $s.lyricScale, 0.6...1.4)
+                slider("Timing (seconds early)", $s.lyricOffset, -2...2)
                 Toggle("Twinkling star background", isOn: $s.starsOn)
             }
             Section { Text("Applies to the lock screen and the desktop lyrics card. Lyrics come from LRCLIB when a synced version exists.").font(.caption).foregroundStyle(.secondary) }

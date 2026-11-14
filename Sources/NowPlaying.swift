@@ -46,6 +46,7 @@ final class NowPlaying: ObservableObject {
         polling = true
         DispatchQueue.global(qos: .utility).async { [weak self] in
             guard let self else { return }
+            let began = Date()
             var result: Track?
             if self.running("com.spotify.client") { result = self.spotify() }
             if result == nil, self.running("com.apple.Music") { result = self.music() }
@@ -54,6 +55,8 @@ final class NowPlaying: ObservableObject {
                 withArt.artworkURL = self.musicArtwork(key: found.title + "|" + found.artist)
                 result = withArt
             }
+            // The position was read part-way through the script, so stamp it with the middle of the poll
+            if var r = result { r.polledAt = Date(timeIntervalSince1970: (began.timeIntervalSince1970 + Date().timeIntervalSince1970) / 2); result = r }
             let next = result
             DispatchQueue.main.async {
                 self.polling = false

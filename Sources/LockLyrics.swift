@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import Combine
 
 /// Puts a window into its own high-level "space" using private SkyLight calls so it can sit above the lock screen.
 /// Loaded with dlopen so the app still builds and runs if Apple changes or removes these functions.
@@ -99,12 +100,82 @@ final class DesktopLyricsPanel: NSPanel {
     }
 }
 
+/// Small clickable box (bottom-left) with a spinning CD and the song, shown while lyrics are on screen.
+/// Tap it for CD mode: the lyrics go away and a big CD sits in the middle. Tap the CD to bring the lyrics back.
+final class LockMiniPanel: NSPanel {
+    init(player: NowPlaying) {
+        super.init(contentRect: NSRect(x: 40, y: 40, width: 290, height: 72),
+                   styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        isOpaque = false; backgroundColor = .clear; hasShadow = false
+        level = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()))
+        collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
+        contentView = NSHostingView(rootView: LockMiniView(player: player))
+    }
+    func present() {
+        relayout()
+        orderFrontRegardless()
+        SkyLight.moveToLockSpace(windowNumber: windowNumber)
+    }
+    func relayout() {
+        let f = NSScreen.main?.frame ?? .zero
+        if SettingsStore.shared.lockStage == 0 {
+            let side = CGFloat(SettingsStore.shared.lockRecordSize) + 60
+            setFrame(NSRect(x: f.midX - side / 2, y: f.midY - side / 2, width: side, height: side), display: true)
+        } else {
+            setFrame(NSRect(x: f.minX + 40, y: f.minY + 40, width: 290, height: 72), display: true)
+        }
+    }
+}
+
+struct LockMiniView: View {
+    @ObservedObject var player: NowPlaying
+    @ObservedObject var s = SettingsStore.shared
+
+    var body: some View {
+        let t = player.track
+        if s.lockStage == 0 {
+            Button { withAnimation(.spring(response: 0.45, dampingFraction: 0.75)) { s.lockStage = 2 } } label: {
+                VStack(spacing: 14) {
+                    LockRecord(url: t?.artworkURL, size: CGFloat(s.lockRecordSize))
+                    if s.lockTitleOn, let t {
+                        Text("\(t.title) · \(t.artist)").font(.system(size: 13)).foregroundStyle(.white.opacity(0.75)).lineLimit(1)
+                    }
+                }
+            }.buttonStyle(.plain)
+        } else {
+            Button { withAnimation(.spring(response: 0.45, dampingFraction: 0.75)) { s.lockStage = 0 } } label: {
+                HStack(spacing: 10) {
+                    CDDisc(url: t?.artworkURL, size: 48, playing: t?.isPlaying ?? false)
+                    if s.lockTitleOn {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(t?.title ?? "Nothing playing").font(.system(size: 13, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
+                            Text(t?.artist ?? "").font(.system(size: 11)).foregroundStyle(.white.opacity(0.6)).lineLimit(1)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(10)
+                .background(RoundedRectangle(cornerRadius: 18).fill(.black.opacity(0.5)))
+                .overlay(RoundedRectangle(cornerRadius: 18).stroke(.white.opacity(0.18), lineWidth: 1))
+            }.buttonStyle(PressScale())
+        }
+    }
+}
+
 /// Shows the panels when the Mac locks, hides them on unlock.
 final class LockLyrics {
     private let player: NowPlaying, lyrics: LyricsStore
     private var panel: LockLyricsPanel?
     private var controls: LockControlsPanel?
-    init(player: NowPlaying, lyrics: LyricsStore) { self.player = player; self.lyrics = lyrics }
+    private var mini: LockMiniPanel?
+    private var bag = Set<AnyCancellable>()
+
+    init(player: NowPlaying, lyrics: LyricsStore) {
+        self.player = player; self.lyrics = lyrics
+        let s = SettingsStore.shared
+        s.$lockStage.dropFirst().sink { [weak self] _ in DispatchQueue.main.async { self?.mini?.relayout() } }.store(in: &bag)
+        s.$lockRecordSize.dropFirst().sink { [weak self] _ in DispatchQueue.main.async { self?.mini?.relayout() } }.store(in: &bag)
+    }
 
     func start() {
         let c = DistributedNotificationCenter.default()
@@ -116,11 +187,13 @@ final class LockLyrics {
         guard SettingsStore.shared.lockLyricsOn || preview else { return }
         if panel == nil { panel = LockLyricsPanel(player: player, lyrics: lyrics) }
         if controls == nil { controls = LockControlsPanel(player: player) }
+        if mini == nil { mini = LockMiniPanel(player: player) }
         panel?.present()
+        mini?.present()
         if SettingsStore.shared.lockControlsOn || preview { controls?.present() }
-        if preview { DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in self?.hide() } }
+        if preview { DispatchQueue.main.asyncAfter(deadline: .now() + 20) { [weak self] in self?.hide() } }
     }
-    func hide() { panel?.orderOut(nil); controls?.orderOut(nil) }
+    func hide() { panel?.orderOut(nil); controls?.orderOut(nil); mini?.orderOut(nil) }
 }
 
 // MARK: view
@@ -213,53 +286,58 @@ struct LockLyricsView: View {
         guard let t, let i, i < lyrics.lines.count else { return 0 }
         let start = lyrics.lines[i].t
         let end = i + 1 < lyrics.lines.count ? lyrics.lines[i + 1].t : start + 4
-        return max(0, min(0.999, (t.position - start) / max(end - start, 0.5)))
+        return max(0, min(0.999, (livePos(t) - start) / max(end - start, 0.5)))
     }
 
     var body: some View {
         let t = player.track
-        let i = t.flatMap { lyrics.index(at: $0.position) }
-        let cur = text(i ?? -1).isEmpty ? "♪" : text(i ?? -1)
+        let auraBG = !compact && (s.lyricBackground == 1 || s.lyricStyle == 4)
         ZStack {
             if !compact { LinearGradient(colors: [.clear, .black.opacity(s.lockDim)], startPoint: .center, endPoint: .bottom) }
-            if !compact && (s.lyricBackground == 1 || s.lyricStyle == 4) { AuraBackground(url: t?.artworkURL) }
-            if s.starsOn { StarField().opacity(!compact && (s.lyricBackground == 1 || s.lyricStyle == 4) ? 0.35 : 0.8) }
-            VStack(spacing: 12 * k) {
-                Spacer(minLength: 0)
-                if !compact && (s.lockStage == 0 || (s.lockStage == 2 && s.lockRecordOn)) {
-                    LockRecord(url: t?.artworkURL, size: s.lockRecordSize).padding(.bottom, 8 * k)
-                }
-                if !compact && s.lockStage == 1 {
-                    AsyncImage(url: t?.artworkURL) { $0.resizable().scaledToFill() } placeholder: { Color.gray.opacity(0.3) }
-                        .frame(width: 380, height: 380).clipShape(RoundedRectangle(cornerRadius: 24)).shadow(radius: 30)
-                }
-                if compact || s.lockStage == 2 {
-                    // Fixed box: without it the block resized with every line, so the whole view
-                    // jumped sideways and upwards between lines.
-                    block(t, i, cur)
-                        .frame(width: lyricWidth, height: (s.lyricStyle == 0 || s.lyricStyle == 4 ? 240 : 150) * k)
-                        .scaleEffect(s.lyricScale)
-                        .rotationEffect(.degrees(s.lyricLean))
-                        .colorMultiply(s.lyricColorMode == 0 ? Color.white : lyricColour)
-                }
-                if s.lyricStyle != 2 && s.lockNextLineOn && (compact || s.lockStage == 2) {
-                    Text(text((i ?? -1) + 1)).font(.system(size: 20 * k, weight: .medium, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.45)).lineLimit(1).minimumScaleFactor(0.6)
-                        .frame(width: lyricWidth, height: 26 * k).multilineTextAlignment(.center)
-                }
-                if let t, s.lockTitleOn {
-                    Text("\(t.title) · \(t.artist)").font(.system(size: 13 * k))
-                        .foregroundStyle(.white.opacity(0.6)).lineLimit(1).minimumScaleFactor(0.7)
-                        .frame(width: lyricWidth, height: 18 * k).multilineTextAlignment(.center)
-                }
+            if auraBG { AuraBackground(url: t?.artworkURL) }
+            if s.starsOn { StarField().opacity(auraBG ? 0.35 : 0.8) }
+            if compact || s.lockStage == 2 {
+                lyricArea(t)                                   // lyrics mode: words fill the screen
+            } else if s.lockStage == 1 {
+                AsyncImage(url: t?.artworkURL) { $0.resizable().scaledToFill() } placeholder: { Color.gray.opacity(0.3) }
+                    .frame(width: 380, height: 380).clipShape(RoundedRectangle(cornerRadius: 24)).shadow(radius: 30)
             }
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, compact ? 20 : 80).padding(.bottom, compact ? 10 : 80)
-            .animation(.spring(response: 0.5, dampingFraction: 0.75), value: i)
+            // stage 0 (CD mode): the big CD is its own small clickable window, see LockMiniPanel
         }
         .ignoresSafeArea()
-        .onChange(of: i) { _, _ in burst += 1 }
         .task(id: player.track?.artworkURL) { if let c = await AlbumColor.from(player.track?.artworkURL) { albumTint = c } }
+    }
+
+    /// Where the song is right now, in seconds, including the timing offset from Settings.
+    private func livePos(_ t: Track?, _ now: Date = Date()) -> Double {
+        guard let t else { return 0 }
+        return t.position + (t.isPlaying ? now.timeIntervalSince(t.polledAt) : 0) + s.lyricOffset
+    }
+
+    @ViewBuilder private func lyricArea(_ t: Track?) -> some View {
+        if s.lyricStyle == 0 || s.lyricStyle == 4 {
+            constellation(t, soft: s.lyricStyle == 4)
+                .padding(.top, compact ? 6 : 170).padding(.bottom, compact ? 6 : 150)
+                .padding(.horizontal, compact ? 12 : 100)
+                .colorMultiply(s.lyricColorMode == 0 ? Color.white : lyricColour)
+        } else {
+            TimelineView(.periodic(from: .now, by: 0.1)) { tl in
+                let pos = livePos(t, tl.date)
+                let i = lyrics.index(at: pos)
+                let cur = text(i ?? -1).isEmpty ? "♪" : text(i ?? -1)
+                VStack(spacing: 12 * k) {
+                    block(t, i, cur).frame(width: lyricWidth, height: 150 * k)
+                        .scaleEffect(s.lyricScale).rotationEffect(.degrees(s.lyricLean))
+                        .colorMultiply(s.lyricColorMode == 0 ? Color.white : lyricColour)
+                    if s.lyricStyle != 2 && s.lockNextLineOn {
+                        Text(text((i ?? -1) + 1)).font(.system(size: 20 * k, weight: .medium, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.45)).lineLimit(1)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .animation(.spring(response: 0.5, dampingFraction: 0.75), value: i)
+            }
+        }
     }
 
     @ViewBuilder private func block(_ t: Track?, _ i: Int?, _ cur: String) -> some View {
@@ -282,12 +360,11 @@ struct LockLyricsView: View {
     // Stars and Aura: each word is a star that lights up as it is sung, joined into a constellation
     private func constellation(_ t: Track?, soft: Bool) -> some View {
         TimelineView(.periodic(from: .now, by: 1.0 / 30.0)) { tl in
-            let elapsed = (t?.isPlaying ?? false) ? tl.date.timeIntervalSince(t?.polledAt ?? tl.date) : 0
-            let pos = (t?.position ?? 0) + elapsed
+            let pos = livePos(t, tl.date)
             let idx = lyrics.index(at: pos)
             let words = (idx.map { text($0) } ?? "").split(separator: " ").map(String.init)
             ConstellationLyrics(words: words.isEmpty ? ["♪"] : words, progress: progressAt(pos, idx),
-                                seed: idx ?? 0, soft: soft, scale: k)
+                                seed: idx.map { Int(lyrics.lines[$0].t * 100) } ?? 0, soft: soft, scale: k)
                 .id(idx ?? -1)
         }
     }
