@@ -64,10 +64,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         lyricsWidget = DesktopLyricsPanel(player: player, lyrics: lyrics)
         lockLyrics = LockLyrics(player: player, lyrics: lyrics)
         tools.clock.onRing = { [status] in status.show(Toast(icon: "alarm.fill", text: "Alarm")) }
+        system.onChange = { [status] icon, level in status.showHUD(icon: icon, level: level) }
 
         player.$track.sink { [tools, lyrics, audio] t in
             tools.diary.record(t)
-            audio.setMusicPlaying(t != nil)
+            audio.setMusicPlaying(t?.isPlaying == true)
             if let t { lyrics.load(title: t.title, artist: t.artist) }
         }.store(in: &bag)
         SettingsStore.shared.objectWillChange.sink { [weak self] _ in
@@ -79,8 +80,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // starts after the switch is flipped, so say the relaunch part out loud.
         audio.$needsPermission.removeDuplicates().sink { [weak self] missing in
             guard missing else { return }
-            self?.status.show(Toast(icon: "exclamationmark.triangle.fill",
-                                    text: "Allow Screen Recording, then reopen Spindle"))
+            DispatchQueue.main.asyncAfter(deadline: .now() + 7) {      // pop-ups are muted for the first 6 s
+                self?.status.show(Toast(icon: "exclamationmark.triangle.fill", text: "Allow Screen Recording"))
+            }
         }.store(in: &bag)
 
         applySettings()                        // window visibility only; cheap

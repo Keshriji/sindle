@@ -61,3 +61,41 @@ struct ShakeIcon: View {
             .onAppear { withAnimation(.easeInOut(duration: 0.09).repeatCount(24, autoreverses: true)) { shake = true } }
     }
 }
+
+/// A CD: the album cover is the disc, with a centre hole, a bright rim and a fixed shine while it turns.
+struct CDDisc: View {
+    let url: URL?
+    var size: CGFloat = 26
+    var playing = true
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1.0 / 30.0)) { tl in
+            let angle = playing ? (tl.date.timeIntervalSinceReferenceDate * 150).truncatingRemainder(dividingBy: 360) : 0
+            ZStack {
+                ZStack {
+                    AsyncImage(url: url) { $0.resizable().scaledToFill() } placeholder: { Color.gray.opacity(0.4) }
+                        .frame(width: size, height: size).clipShape(Circle())
+                    Circle().fill(.black).frame(width: size * 0.22)
+                    Circle().stroke(.white.opacity(0.45), lineWidth: 0.6).frame(width: size * 0.22)
+                }
+                .rotationEffect(.degrees(angle))
+                Circle().fill(AngularGradient(colors: [.white.opacity(0.35), .clear, .white.opacity(0.22), .clear, .white.opacity(0.35)], center: .center))
+                    .frame(width: size, height: size)
+                Circle().stroke(.white.opacity(0.4), lineWidth: 0.6).frame(width: size, height: size)
+            }
+            .frame(width: size, height: size)
+        }
+    }
+}
+
+/// Thin level bar used by the volume and brightness pop-ups.
+struct HUDBar: View {
+    let level: Double
+    var body: some View {
+        ZStack(alignment: .leading) {
+            Capsule().fill(.white.opacity(0.25))
+            Capsule().fill(.white).frame(width: 44 * max(0.04, min(1, level)))
+        }
+        .frame(width: 44, height: 5)
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: level)
+    }
+}

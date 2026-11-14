@@ -17,7 +17,7 @@ final class DesktopWidgetPanel: NSPanel {
 struct DesktopWidgetView: View {
     @ObservedObject var player: NowPlaying
     @State private var style = SettingsStore.shared.widgetStyle
-    private var playing: Bool { player.track != nil }
+    private var playing: Bool { player.track?.isPlaying == true }
 
     var body: some View {
         ZStack { Group { if style == 0 { turntable } else if style == 1 { sleeve } else { aura } } }

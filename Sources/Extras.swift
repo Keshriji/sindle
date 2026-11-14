@@ -96,7 +96,7 @@ final class DiaryStore: ObservableObject {
     }
 
     func record(_ t: Track?) {
-        guard let t else { last = nil; return }
+        guard let t, t.isPlaying else { last = nil; return }
         let now = Date()
         let dt = min(now.timeIntervalSince(last ?? now), 2)
         last = now
@@ -167,7 +167,7 @@ struct GlowView: View {
     @ObservedObject var s = SettingsStore.shared
     @State private var albumColor = Color.white
 
-    private var visible: Bool { s.glowOnlyWhilePlaying ? player.track != nil : true }
+    private var visible: Bool { s.glowOnlyWhilePlaying ? player.track?.isPlaying == true : true }
 
     var body: some View {
         Group {

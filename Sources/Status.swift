@@ -5,7 +5,7 @@ struct Headphones: Equatable {
     var name: String
     var left: Int?, right: Int?, caseLevel: Int?, main: Int?
 }
-struct Toast: Equatable { let icon: String; let text: String; var battery: Int? = nil; var charging = false }
+struct Toast: Equatable { let icon: String; let text: String; var battery: Int? = nil; var charging = false; var level: Double? = nil }
 
 /// Headphone battery, Mac battery/charging, and Focus mode. Shows a short toast in the island on changes.
 final class StatusStore: ObservableObject {
@@ -34,13 +34,18 @@ final class StatusStore: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 6) { self.quiet = false }
     }
 
-    func show(_ t: Toast) {
+    /// Volume and brightness pop-up: icon on the left of the notch, level bar on the right.
+    func showHUD(icon: String, level: Double) {
+        show(Toast(icon: icon, text: "\(Int((level * 100).rounded()))%", level: level), seconds: 1.4)
+    }
+
+    func show(_ t: Toast, seconds: Double = 3) {
         guard !quiet, SettingsStore.shared.toastsOn else { return }
         toastWork?.cancel()
         toast = t
         let w = DispatchWorkItem { [weak self] in self?.toast = nil }
         toastWork = w
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: w)
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: w)
     }
 
     // MARK: power

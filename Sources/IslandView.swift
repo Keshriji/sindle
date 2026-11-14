@@ -26,7 +26,13 @@ struct IslandView: View {
     @State private var coverBump = false
     @State private var page = Page.player
 
-    private var w: CGFloat { open ? 380 : (peek ? 310 : status.toast != nil ? 300 : (player.track == nil ? 190 : 250)) }
+    private var w: CGFloat {
+        if open { return 380 }
+        if peek { return 310 }
+        let n = IslandPanel.notchWidth                    // wings sit either side of the camera housing
+        if let t = status.toast { return n + (t.battery != nil || t.level != nil ? 130 : 230) }
+        return player.track == nil ? n : n + 110
+    }
     private var h: CGFloat { open ? 160 : (peek ? 72 : 34) }
     private var radius: CGFloat { (open || peek) ? 28 : 14 }
     private var glassMaterial: Material { [Material.ultraThinMaterial, .thinMaterial, .regularMaterial, .thickMaterial][min(max(settings.glassMaterial, 0), 3)] }
@@ -127,13 +133,7 @@ struct IslandView: View {
         } else if peek, let t = player.track {
             peekView(t)
         } else if let toast = status.toast {
-            HStack(spacing: 8) {
-                if let b = toast.battery { BatteryView(percent: b, charging: toast.charging) }
-                else if toast.icon == "alarm.fill" { ShakeIcon(name: toast.icon) }
-                else { PopIcon(name: toast.icon) }
-                Text(toast.text).font(.system(size: 12, weight: .medium)).foregroundStyle(.white).lineLimit(1)
-            }
-            .frame(height: 34).transition(.opacity)
+            toastView(toast)
         } else if let t = player.track {
             compact(t)
         }
@@ -172,14 +172,38 @@ struct IslandView: View {
         }.padding(.horizontal, 14).frame(height: 72)
     }
 
+    /// Pop-ups live on the two sides of the notch: icon on the left, value on the right.
+    private func toastView(_ toast: Toast) -> some View {
+        HStack(spacing: 0) {
+            if let b = toast.battery { BatteryView(percent: b, charging: toast.charging) }
+            else if let lv = toast.level {
+                Image(systemName: toast.icon).font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
+                    .symbolEffect(.bounce, value: lv)
+            }
+            else if toast.icon == "alarm.fill" { ShakeIcon(name: toast.icon) }
+            else { PopIcon(name: toast.icon) }
+            Spacer(minLength: 8)
+            if let b = toast.battery {
+                Text("\(b)%").font(.system(size: 12, weight: .semibold)).foregroundStyle(.white).contentTransition(.numericText())
+            } else if let lv = toast.level {
+                HUDBar(level: lv)
+            } else {
+                Text(toast.text).font(.system(size: 11, weight: .medium)).foregroundStyle(.white)
+                    .lineLimit(1).minimumScaleFactor(0.7)
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 34)
+    }
+
     private func compact(_ t: Track) -> some View {
         // Left: the cover turning like a record. Right: the equalizer. No title here, which is what
         // used to show up as stray text beside the bars.
         HStack(spacing: 0) {
-            disc(t, 24)
+            CDDisc(url: t.artworkURL, size: 26, playing: t.isPlaying)
             Spacer(minLength: 8)
             if settings.eqOn {
-                EqualizerBars(audio: audio, playing: true, count: settings.eqBars, rainbow: settings.eqColorMode == 1, gain: settings.eqSensitivity)
+                EqualizerBars(audio: audio, playing: t.isPlaying, count: settings.eqBars, rainbow: settings.eqColorMode == 1, gain: settings.eqSensitivity)
             } else {
                 Image(systemName: "waveform").font(.system(size: 12)).foregroundStyle(.white.opacity(0.5))
             }
@@ -201,7 +225,7 @@ struct IslandView: View {
                 }
                 Spacer()
                 if settings.eqOn {
-                    EqualizerBars(audio: audio, playing: true, count: settings.eqBars, rainbow: settings.eqColorMode == 1, gain: settings.eqSensitivity)
+                    EqualizerBars(audio: audio, playing: t.isPlaying, count: settings.eqBars, rainbow: settings.eqColorMode == 1, gain: settings.eqSensitivity)
                 }
             }
             ProgressView(value: min(t.position / t.duration, 1)).tint(.white)

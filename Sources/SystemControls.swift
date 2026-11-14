@@ -16,6 +16,7 @@ import Darwin
 final class SystemControls: ObservableObject {
     @Published var volume = 0.5
     @Published var brightness = 0.5
+    var onChange: ((String, Double) -> Void)?     // fired when volume or brightness changes from outside the sliders
     private let queue = DispatchQueue(label: "spindle.brightness")
     private var timer: Timer?
     private var volQuiet = Date.distantPast      // ignore system echoes briefly after the user drags
@@ -168,13 +169,17 @@ final class SystemControls: ObservableObject {
             guard let v = Self.readVolume() else { return }
             DispatchQueue.main.async {
                 guard Date() > self.volQuiet else { return }
-                if abs(Double(v) - self.volume) > 0.005 { self.volume = Double(v) }
+                if abs(Double(v) - self.volume) > 0.005 {
+                    self.volume = Double(v)
+                    let x = Double(v)
+                    self.onChange?(x <= 0 ? "speaker.slash.fill" : x < 0.34 ? "speaker.wave.1.fill" : x < 0.67 ? "speaker.wave.2.fill" : "speaker.wave.3.fill", x)
+                }
             }
         }
     }
 
     func setVolume(_ x: Double) {
-        volQuiet = Date().addingTimeInterval(0.5)
+        volQuiet = Date().addingTimeInterval(1.5)
         volume = x
         queue.async { Self.writeVolume(Float(x)) }
     }
@@ -187,13 +192,13 @@ final class SystemControls: ObservableObject {
             var f: Float = 0
             guard getBrightness(CGMainDisplayID(), &f) == 0 else { return }
             DispatchQueue.main.async {
-                if Date() > self.briQuiet, abs(Double(f) - self.brightness) > 0.005 { self.brightness = Double(f) }
+                if Date() > self.briQuiet, abs(Double(f) - self.brightness) > 0.005 { self.brightness = Double(f); self.onChange?("sun.max.fill", Double(f)) }
             }
         }
     }
 
     func setBrightness(_ x: Double) {
-        briQuiet = Date().addingTimeInterval(0.5)
+        briQuiet = Date().addingTimeInterval(1.5)
         brightness = x
         guard let setBrightness else { return }
         queue.async { _ = setBrightness(CGMainDisplayID(), Float(x)) }

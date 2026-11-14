@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import ServiceManagement
+import AVFoundation
 
 /// Every option, saved on this Mac.
 final class SettingsStore: ObservableObject {
@@ -145,6 +146,18 @@ struct SettingsView: View {
         HStack { Text(title); Slider(value: v, in: r); Text(String(format: f, v.wrappedValue)).monospacedDigit().frame(width: 52, alignment: .trailing) }
     }
 
+    private func permRow(_ title: String, _ granted: Bool?, _ pane: String) -> some View {
+        HStack {
+            Image(systemName: granted == true ? "checkmark.circle.fill" : (granted == false ? "xmark.circle" : "questionmark.circle"))
+                .foregroundStyle(granted == true ? Color.green : Color.secondary)
+            Text(title)
+            Spacer()
+            Button("Open") {
+                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") { NSWorkspace.shared.open(url) }
+            }
+        }
+    }
+
     @ViewBuilder private func content(_ p: Pane) -> some View {
         switch p {
         case .general:
@@ -163,6 +176,16 @@ struct SettingsView: View {
                 Text("If you hide the icon, open Spindle again from Applications to bring these settings back.").font(.caption).foregroundStyle(.secondary)
             }
             Section("Units") { Toggle("Show temperature in °F", isOn: $s.fahrenheit) }
+            Section("Permissions") {
+                permRow("Screen Recording: equalizer and Beat Glow follow the music", CGPreflightScreenCaptureAccess(), "Privacy_ScreenCapture")
+                permRow("Accessibility: typing speed", AXIsProcessTrusted(), "Privacy_Accessibility")
+                permRow("Camera: mirror and Face Unlock", AVCaptureDevice.authorizationStatus(for: .video) == .authorized, "Privacy_Camera")
+                permRow("Location: weather (otherwise your approximate city is used)", nil, "Privacy_LocationServices")
+                permRow("Automation: Spotify and Music", nil, "Privacy_Automation")
+                permRow("Full Disk Access: Focus mode badge", nil, "Privacy_AllFiles")
+                Text("Each is asked for once. Builds from GitHub keep the same signature, so a permission you allow stays allowed. After allowing Screen Recording, reopen Spindle. Reopen this window to refresh the ticks.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
 
         case .island:
             Section("Shape and behaviour") {

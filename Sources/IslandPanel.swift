@@ -3,6 +3,14 @@ import AppKit
 
 /// Borderless, transparent window pinned to the top-centre of the screen.
 final class IslandPanel: NSPanel {
+    /// Width of the camera housing, read from the free space either side of it. Used so the island's
+    /// left and right "wings" sit outside the notch instead of behind it.
+    static var notchWidth: CGFloat {
+        guard let s = NSScreen.main, let l = s.auxiliaryTopLeftArea, let r = s.auxiliaryTopRightArea,
+              s.frame.width > l.width + r.width else { return 190 }
+        return s.frame.width - l.width - r.width
+    }
+
     static let size = CGSize(width: 560, height: 250)
 
     init(player: NowPlaying, weather: WeatherStore, lyrics: LyricsStore, status: StatusStore, tools: Tools, audio: AudioLevel) {

@@ -6,6 +6,7 @@ struct Track: Equatable {
     var artworkURL: URL?
     var position = 0.0, duration = 1.0
     var source = ""            // "Spotify" or "Music"
+    var polledAt = Date()      // when position was read, so lyrics can move smoothly between polls
     var isPlaying = false      // a paused track is still reported, so the island can resume it
 }
 

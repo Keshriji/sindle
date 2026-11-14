@@ -222,11 +222,8 @@ struct LockLyricsView: View {
         let cur = text(i ?? -1).isEmpty ? "♪" : text(i ?? -1)
         ZStack {
             if !compact { LinearGradient(colors: [.clear, .black.opacity(s.lockDim)], startPoint: .center, endPoint: .bottom) }
-            if s.lyricBackground == 1 {
-                AsyncImage(url: t?.artworkURL) { $0.resizable().scaledToFill().blur(radius: 70).opacity(0.7) } placeholder: { Color.clear }
-                    .ignoresSafeArea()
-            }
-            if s.starsOn && s.lyricBackground != 1 { StarField().opacity(0.8) }
+            if !compact && (s.lyricBackground == 1 || s.lyricStyle == 4) { AuraBackground(url: t?.artworkURL) }
+            if s.starsOn { StarField().opacity(!compact && (s.lyricBackground == 1 || s.lyricStyle == 4) ? 0.35 : 0.8) }
             VStack(spacing: 12 * k) {
                 Spacer(minLength: 0)
                 if !compact && (s.lockStage == 0 || (s.lockStage == 2 && s.lockRecordOn)) {
@@ -240,7 +237,7 @@ struct LockLyricsView: View {
                     // Fixed box: without it the block resized with every line, so the whole view
                     // jumped sideways and upwards between lines.
                     block(t, i, cur)
-                        .frame(width: lyricWidth, height: 150 * k)
+                        .frame(width: lyricWidth, height: (s.lyricStyle == 0 || s.lyricStyle == 4 ? 240 : 150) * k)
                         .scaleEffect(s.lyricScale)
                         .rotationEffect(.degrees(s.lyricLean))
                         .colorMultiply(s.lyricColorMode == 0 ? Color.white : lyricColour)
@@ -270,8 +267,28 @@ struct LockLyricsView: View {
         case 1:  bigWords(t, i)
         case 2:  lens(i)
         case 3:  terminal(t, i, cur)
-        case 4:  aura(i, cur)
-        default: stars(i, cur)
+        case 4:  constellation(t, soft: true)
+        default: constellation(t, soft: false)
+        }
+    }
+
+    private func progressAt(_ pos: Double, _ i: Int?) -> Double {
+        guard let i, i < lyrics.lines.count else { return 0 }
+        let start = lyrics.lines[i].t
+        let end = i + 1 < lyrics.lines.count ? lyrics.lines[i + 1].t : start + 4
+        return max(0, min(0.999, (pos - start) / max(end - start, 0.5)))
+    }
+
+    // Stars and Aura: each word is a star that lights up as it is sung, joined into a constellation
+    private func constellation(_ t: Track?, soft: Bool) -> some View {
+        TimelineView(.periodic(from: .now, by: 1.0 / 30.0)) { tl in
+            let elapsed = (t?.isPlaying ?? false) ? tl.date.timeIntervalSince(t?.polledAt ?? tl.date) : 0
+            let pos = (t?.position ?? 0) + elapsed
+            let idx = lyrics.index(at: pos)
+            let words = (idx.map { text($0) } ?? "").split(separator: " ").map(String.init)
+            ConstellationLyrics(words: words.isEmpty ? ["♪"] : words, progress: progressAt(pos, idx),
+                                seed: idx ?? 0, soft: soft, scale: k)
+                .id(idx ?? -1)
         }
     }
 
