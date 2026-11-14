@@ -13,25 +13,46 @@ struct ConstellationLyrics: View {
     var body: some View {
         GeometryReader { g in
             let n = words.count
-            let fs = CGFloat(max(11, min(46 * Double(scale), (52 - Double(n) * 2.2) * Double(scale))))
+            let fs = fontSize(n: n)
             let layout = place(g.size, fs)
-            let x = min(Double(n), progress * Double(n) * 1.2 + 0.2)     // word k lights up when x reaches k
+            let x = litCount(n: n, progress: progress)
             ZStack {
-                if n > 1 {
-                    Path { p in
-                        for (k, pt) in layout.points.enumerated() { if k == 0 { p.move(to: pt) } else { p.addLine(to: pt) } }
-                    }
-                    .trim(from: 0, to: CGFloat(min(1, x / Double(n - 1))))
-                    .stroke(Color.white.opacity(soft ? 0.35 : 0.8),
-                            style: StrokeStyle(lineWidth: (soft ? 3 : 1.3) * scale, lineCap: .round, lineJoin: .round))
-                    .blur(radius: soft ? 3 : 0)
-                    .shadow(color: .white.opacity(0.5), radius: soft ? 0 : 3)
-                }
-                ForEach(0..<n, id: \.self) { k in
-                    StarNode(word: words[k], on: Double(k) <= x, soft: soft, size: Double(fs), scale: scale, above: layout.above[k])
-                        .position(layout.points[k])
+                threadView(n: n, layout: layout, x: x)
+                starsView(n: n, layout: layout, x: x, fs: fs)
+            }
+        }
+    }
+
+    private func fontSize(n: Int) -> CGFloat {
+        CGFloat(max(11, min(46 * Double(scale), (52 - Double(n) * 2.2) * Double(scale))))
+    }
+
+    private func litCount(n: Int, progress: Double) -> Double {
+        min(Double(n), progress * Double(n) * 1.2 + 0.2)
+    }
+
+    @ViewBuilder
+    private func threadView(n: Int, layout: (points: [CGPoint], above: [Bool]), x: Double) -> some View {
+        if n > 1 {
+            let trimEnd = CGFloat(min(1, x / Double(n - 1)))
+            Path { p in
+                for (k, pt) in layout.points.enumerated() {
+                    if k == 0 { p.move(to: pt) } else { p.addLine(to: pt) }
                 }
             }
+            .trim(from: 0, to: trimEnd)
+            .stroke(Color.white.opacity(soft ? 0.35 : 0.8),
+                    style: StrokeStyle(lineWidth: (soft ? 3 : 1.3) * scale, lineCap: .round, lineJoin: .round))
+            .blur(radius: soft ? 3 : 0)
+            .shadow(color: .white.opacity(0.5), radius: soft ? 0 : 3)
+        }
+    }
+
+    @ViewBuilder
+    private func starsView(n: Int, layout: (points: [CGPoint], above: [Bool]), x: Double, fs: CGFloat) -> some View {
+        ForEach(0..<n, id: \.self) { k in
+            StarNode(word: words[k], on: Double(k) <= x, soft: soft, size: Double(fs), scale: scale, above: layout.above[k])
+                .position(layout.points[k])
         }
     }
 
