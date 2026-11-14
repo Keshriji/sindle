@@ -285,6 +285,8 @@ struct IslandView: View {
                 ctl("backward.fill", "previous track")
                 ctl("playpause.fill", "playpause")
                 ctl("forward.fill", "next track")
+                Spacer(minLength: 0)
+                LikeButton(diary: tools.diary, track: t)
             }
         }
     }

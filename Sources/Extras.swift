@@ -84,8 +84,17 @@ struct TypingPage: View {
 struct DayBar { let label: String; let seconds: Double; let key: String }
 struct DayLog: Codable { var seconds = 0.0; var top: [String: Double] = [:] }
 
+/// A song you gave a heart to, kept in the Diary, newest first.
+struct LikedSong: Codable, Identifiable, Equatable {
+    var id: String { "\(title)·\(artist)" }
+    let title: String, artist: String
+    let art: String?
+    let at: Date
+}
+
 final class DiaryStore: ObservableObject {
     @Published var days: [String: DayLog]
+    @Published var liked: [LikedSong]
     private var last: Date?
     private var ticks = 0
     static let fmt: DateFormatter = { let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; return f }()
@@ -93,6 +102,21 @@ final class DiaryStore: ObservableObject {
     init() {
         days = UserDefaults.standard.data(forKey: "spindle.diary")
             .flatMap { try? JSONDecoder().decode([String: DayLog].self, from: $0) } ?? [:]
+        liked = UserDefaults.standard.data(forKey: "spindle.liked")
+            .flatMap { try? JSONDecoder().decode([LikedSong].self, from: $0) } ?? []
+    }
+
+    func isLiked(_ t: Track) -> Bool { liked.contains { $0.title == t.title && $0.artist == t.artist } }
+
+    func toggleLike(_ t: Track) {
+        if let i = liked.firstIndex(where: { $0.title == t.title && $0.artist == t.artist }) {
+            liked.remove(at: i)
+        } else {
+            liked.insert(LikedSong(title: t.title, artist: t.artist,
+                                   art: t.artworkURL?.absoluteString, at: Date()), at: 0)
+            if liked.count > 60 { liked = Array(liked.prefix(60)) }
+        }
+        UserDefaults.standard.set(try? JSONEncoder().encode(liked), forKey: "spindle.liked")
     }
 
     func record(_ t: Track?) {
@@ -144,7 +168,31 @@ struct DiaryPage: View {
             if let t = diary.topTrack {
                 Text("Most played: \(t)").font(.system(size: 10)).foregroundStyle(.white.opacity(0.6)).lineLimit(1)
             }
+            if let newest = diary.liked.first {
+                HStack(spacing: 4) {
+                    Image(systemName: "heart.fill").font(.system(size: 9)).foregroundStyle(Color.pink)
+                    Text("\(diary.liked.count) liked · \(newest.title)")
+                        .font(.system(size: 10)).foregroundStyle(.white.opacity(0.6)).lineLimit(1)
+                }
+            } else {
+                Text("No liked songs yet").font(.system(size: 10)).foregroundStyle(.white.opacity(0.35))
+            }
         }.frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// The heart from the island: one tap keeps the song in the Diary, newest first.
+struct LikeButton: View {
+    @ObservedObject var diary: DiaryStore
+    let track: Track
+    var body: some View {
+        Button { diary.toggleLike(track) } label: {
+            Image(systemName: diary.isLiked(track) ? "heart.fill" : "heart")
+                .font(.system(size: 12))
+                .foregroundStyle(diary.isLiked(track) ? Color.pink : Color.white.opacity(0.45))
+        }
+        .buttonStyle(.plain)
+        .help(diary.isLiked(track) ? "Remove from Liked" : "Add to Liked in your Diary")
     }
 }
 
@@ -155,7 +203,8 @@ final class GlowPanel: NSPanel {
                    backing: .buffered, defer: false)
         isOpaque = false; backgroundColor = .clear; hasShadow = false
         ignoresMouseEvents = true
-        level = .floating
+        // Above the lock art, which sits at layer 1000: the light keeps going while the Mac is locked.
+        level = NSWindow.Level(rawValue: Int(NSWindow.Level.screenSaver.rawValue) + 1)
         collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
         contentView = NSHostingView(rootView: GlowView(player: player, audio: audio))
     }
