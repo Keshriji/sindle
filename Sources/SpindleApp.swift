@@ -30,6 +30,7 @@ struct SpindleApp: App {
             Button("Preview lock screen lyrics") { delegate.previewLock() }
             Divider()
             Button("Welcome to Spindle") { WelcomeController.show() }
+            Button("What's New") { WhatsNewController.show() }
             Button("Enter a code…") { CodeSheetController.show() }
             Button("Check for updates…") { UpdaterController.show() }
             Divider()
@@ -97,6 +98,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         applySettings()                        // window visibility only; cheap
         if !UserDefaults.standard.bool(forKey: "spindle.welcomeSeen") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { WelcomeController.show() }
+        } else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { WhatsNewController.showIfNew() }
         }
 
         // Everything else starts on the next turn of the run loop: AppleScript, CoreAudio, location
