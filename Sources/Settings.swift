@@ -56,6 +56,8 @@ final class SettingsStore: ObservableObject {
     @Published var lockNextLineOn: Bool { didSet { put("lockNextLineOn", lockNextLineOn) } }
     @Published var lockControlsOn: Bool { didSet { put("lockControlsOn", lockControlsOn) } }
     @Published var lockSoundsOn: Bool   { didSet { put("lockSoundsOn", lockSoundsOn) } }
+    @Published var lockGlass: Int       { didSet { put("lockGlass", lockGlass) } }           // 0 liquid, 1 clear, 2 off
+    @Published var lensBend: Double     { didSet { put("lensBend", lensBend) } }             // how much the lens bends the lines beside it
     @Published var lyricBackground: Int { didSet { put("lyricBackground", lyricBackground) } } // 0 dark, 1 album blur
     @Published var lyricScatter: Double { didSet { put("lyricScatter", lyricScatter) } }
     @Published var lyricOffset: Double  { didSet { put("lyricOffset", lyricOffset) } }       // seconds the lyrics run early
@@ -112,6 +114,7 @@ final class SettingsStore: ObservableObject {
         lockStage = Self.int("lockStage", 2); lockDim = Self.num("lockDim", 0.6); lockRecordSize = Self.num("lockRecordSize", 160)
         lockTitleOn = Self.flag("lockTitleOn", true); lockNextLineOn = Self.flag("lockNextLineOn", true)
         lockControlsOn = Self.flag("lockControlsOn", true); lockSoundsOn = Self.flag("lockSoundsOn", true)
+        lockGlass = Self.int("lockGlass", 0); lensBend = Self.num("lensBend", 0.5)
         lyricBackground = Self.int("lyricBackground", 1)
         lyricOffset = Self.num("lyricOffset", 0.35); lyricScatter = Self.num("lyricScatter", 0.3); lyricLean = Self.num("lyricLean", 0)
         lyricColorMode = Self.int("lyricColorMode", 0)
@@ -283,6 +286,13 @@ struct SettingsView: View {
                 slider("Screen darkening", $s.lockDim, 0...1)
                 Toggle("Show song title and artist", isOn: $s.lockTitleOn)
                 Toggle("Show the next line", isOn: $s.lockNextLineOn)
+            }
+            Section("Glass") {
+                Picker("Card", selection: $s.lockGlass) {
+                    Text("Liquid, see-through").tag(0); Text("Clear, thinner").tag(1); Text("Off, a solid card").tag(2)
+                }
+                slider("Lens bend", $s.lensBend, 0...1)
+                Text("Lens bend sets how much the lens style smears the lines above and below the current one.").font(.caption).foregroundStyle(.secondary)
             }
             Section {
                 Text("The record turns under the clock. Click it to lift the cover full size, and click the cover again to fill the lock screen with lyrics; click the card to cycle back.").font(.caption).foregroundStyle(.secondary)
