@@ -4,8 +4,8 @@ import AppKit
 /// Everything the island's tool pages need: file tray, notes, tasks, alarm and counter.
 final class Tools {
     let tray = TrayStore(), notes = NotesStore(), tasks = TaskStore(), clock = ClockStore()
-    let typing = TypingStore(), diary = DiaryStore()
-    func start() { tray.start(); clock.start(); typing.start() }
+    let typing = TypingStore(), diary = DiaryStore(), mini = MiniStore()
+    func start() { tray.start(); clock.start(); typing.start(); mini.start() }
 }
 
 // MARK: Tray (drop files in, or copy files in Finder; drag them out again)
@@ -152,6 +152,8 @@ final class ClockStore: ObservableObject {
 
 struct ClockPage: View {
     @ObservedObject var clock: ClockStore
+    @ObservedObject var s = SettingsStore.shared
+    private var design: Font.Design { [Font.Design.rounded, .serif, .monospaced][min(max(s.clockFont, 0), 2)] }
     var body: some View {
         HStack(spacing: 18) {
             VStack(spacing: 6) {
@@ -163,7 +165,7 @@ struct ClockPage: View {
             Rectangle().fill(.white.opacity(0.15)).frame(width: 1)
             VStack(spacing: 4) {
                 Text("Counter").font(.system(size: 10)).foregroundStyle(.white.opacity(0.6))
-                Text("\(clock.count)").font(.system(size: 30, weight: .semibold, design: .rounded))
+                Text("\(clock.count)").font(.system(size: 30, weight: .semibold, design: design))
                     .foregroundStyle(.white).contentTransition(.numericText())
                 HStack(spacing: 14) {
                     step("minus") { clock.count -= 1 }

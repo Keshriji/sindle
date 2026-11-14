@@ -7,7 +7,6 @@ import AppKit
 final class TypingStore: ObservableObject {
     @Published var wpm = 0
     @Published var best = 0
-    @Published var sounds = false
     @Published var trusted = false
     private var stamps: [Date] = []
     private var monitor: Any?
@@ -20,7 +19,7 @@ final class TypingStore: ObservableObject {
         monitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] e in
             guard let self, !e.isARepeat else { return }
             self.stamps.append(Date())
-            if self.sounds { NSSound(named: "Tink")?.play() }
+            if SettingsStore.shared.keySoundsOn { KeySoundEngine.shared.play() }
         }
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.update() }
     }
@@ -50,6 +49,7 @@ final class TypingStore: ObservableObject {
 
 struct TypingPage: View {
     @ObservedObject var typing: TypingStore
+    @ObservedObject var s = SettingsStore.shared
     var body: some View {
         HStack(spacing: 18) {
             ZStack {
@@ -65,9 +65,9 @@ struct TypingPage: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("words per minute").font(.system(size: 12, weight: .semibold)).foregroundStyle(.white)
                 Text("Best this session: \(typing.best)").font(.system(size: 11)).foregroundStyle(.white.opacity(0.6))
-                Button { typing.sounds.toggle() } label: {
-                    Label(typing.sounds ? "Key sounds on" : "Key sounds off",
-                          systemImage: typing.sounds ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                Button { s.keySoundsOn.toggle() } label: {
+                    Label(s.keySoundsOn ? "Key sounds on" : "Key sounds off",
+                          systemImage: s.keySoundsOn ? "speaker.wave.2.fill" : "speaker.slash.fill")
                         .font(.system(size: 11)).foregroundStyle(.white)
                         .padding(.horizontal, 10).padding(.vertical, 4).background(Capsule().fill(.white.opacity(0.14)))
                 }.buttonStyle(.plain)

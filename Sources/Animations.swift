@@ -99,3 +99,58 @@ struct HUDBar: View {
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: level)
     }
 }
+
+/// A record turning on a turntable, with a tonearm that rests when nothing is playing.
+struct TurntableView: View {
+    let url: URL?
+    let size: CGFloat
+    let playing: Bool
+    @State private var spin = false
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            ZStack {
+                Circle().fill(Color(white: 0.08))
+                ForEach([0.82, 0.7, 0.58], id: \.self) { f in
+                    Circle().stroke(.white.opacity(0.08), lineWidth: 1).frame(width: size * f, height: size * f)
+                }
+                AsyncImage(url: url) { $0.resizable().scaledToFill() }
+                    placeholder: { Color.gray.opacity(0.4) }
+                    .frame(width: size * 0.36, height: size * 0.36).clipShape(Circle())
+                Circle().fill(.black).frame(width: size * 0.05, height: size * 0.05)
+            }
+            .frame(width: size, height: size)
+            .rotationEffect(.degrees(spin ? 360 : 0))
+
+            Capsule().fill(.white.opacity(0.85))
+                .frame(width: max(2, size * 0.035), height: size * 0.42)
+                .rotationEffect(.degrees(playing ? 22 : -6), anchor: .top)
+                .offset(x: -size * 0.04, y: size * 0.06)
+                .animation(.spring(response: 0.6, dampingFraction: 0.6), value: playing)
+        }
+        .frame(width: size, height: size)
+        .animation(playing ? .linear(duration: 4).repeatForever(autoreverses: false) : .default, value: spin)
+        .onAppear { spin = playing }
+        .onChange(of: playing) { _, p in spin = p }
+    }
+}
+
+/// AirPods that turn toward you while connected, like Needle's.
+struct TurningAirPods: View {
+    var level: Int?
+    @State private var turn = false
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "airpods")
+                .font(.system(size: 24, weight: .regular))
+                .foregroundStyle(.white)
+                .rotation3DEffect(.degrees(turn ? 18 : -18), axis: (x: 0, y: 1, z: 0))
+                .onAppear {
+                    withAnimation(.easeInOut(duration: 2.2).repeatForever(autoreverses: true)) { turn = true }
+                }
+            if let level {
+                Text("\(level)%").font(.system(size: 11, weight: .medium)).foregroundStyle(.white.opacity(0.7))
+            }
+        }
+    }
+}
