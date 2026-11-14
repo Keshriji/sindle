@@ -424,9 +424,3 @@ enum AlbumColor {
         return Color(red: r / m, green: g / m, blue: b / m)
     }
 }
-
-// light-weight toast used only for the "Allow Screen Recording, then reopen" one-shot prompt
-enum ToastCenter {
-    @TaskLocal static var shared = ToastCenter()
-    func show(_: Toast) { /* no-op; Spindle's StatusStore.toast is what renders toasts */ }
-}
