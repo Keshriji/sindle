@@ -110,7 +110,7 @@ final class SettingsStore: ObservableObject {
         glassTint = Self.num("glassTint", 0.3); keepOpen = Self.flag("keepOpen", false)
         lockStage = Self.int("lockStage", 2); lockDim = Self.num("lockDim", 0.6); lockRecordSize = Self.num("lockRecordSize", 160)
         lockTitleOn = Self.flag("lockTitleOn", true); lockNextLineOn = Self.flag("lockNextLineOn", true)
-        lockControlsOn = Self.flag("lockControlsOn", true); lyricBackground = Self.int("lyricBackground", 0)
+        lockControlsOn = Self.flag("lockControlsOn", true); lyricBackground = Self.int("lyricBackground", 1)
         lyricOffset = Self.num("lyricOffset", 0.35); lyricScatter = Self.num("lyricScatter", 0.3); lyricLean = Self.num("lyricLean", 0)
         lyricColorMode = Self.int("lyricColorMode", 0)
         lyricR = Self.num("lyricR", 1); lyricG = Self.num("lyricG", 1); lyricB = Self.num("lyricB", 1)
@@ -250,6 +250,7 @@ struct SettingsView: View {
 
             Section("Background") {
                 Picker("Behind the words", selection: $s.lyricBackground) { Text("Dark with stars").tag(0); Text("Blurred album cover").tag(1) }
+                Text("The lock screen always uses the blurred cover; this choice applies to the desktop lyrics card.").font(.caption).foregroundStyle(.secondary)
             }
             Section("Colour") {
                 Picker("Words take their colour from", selection: $s.lyricColorMode) { Text("White").tag(0); Text("Album cover").tag(1); Text("Custom").tag(2) }
@@ -271,18 +272,19 @@ struct SettingsView: View {
             Section("Lock screen") {
                 Toggle("Show on the lock screen", isOn: $s.lockLyricsOn)
                 Picker("Starts with", selection: $s.lockStage) { Text("Record").tag(0); Text("Cover").tag(1); Text("Lyrics").tag(2) }.pickerStyle(.segmented)
-                Toggle("Play, pause and skip bar (also switches Record → Cover → Lyrics)", isOn: $s.lockControlsOn)
+                Toggle("Play, pause and skip in the card", isOn: $s.lockControlsOn)
             }
             Section("Look") {
-                Toggle("Spinning record (with lyrics)", isOn: $s.lockRecordOn)
+                Toggle("Show the small record in cover and lyrics", isOn: $s.lockRecordOn)
                 slider("Record size", $s.lockRecordSize, 100...240, "%.0f")
                 slider("Screen darkening", $s.lockDim, 0...1)
                 Toggle("Show song title and artist", isOn: $s.lockTitleOn)
                 Toggle("Show the next line", isOn: $s.lockNextLineOn)
             }
             Section {
+                Text("The record turns under the clock. Click it to lift the cover full size, and click the cover again to fill the lock screen with lyrics; click the card to cycle back.").font(.caption).foregroundStyle(.secondary)
                 Button("Preview now (10 seconds)", action: preview)
-                Text("Uses private macOS features, so it may not appear on every macOS version. The preview shows it on your desktop.").font(.caption).foregroundStyle(.secondary)
+                Text("Runs at the lock screen's own layer, so the clock and password field stay above the art.").font(.caption).foregroundStyle(.secondary)
             }
 
         case .desktop:
