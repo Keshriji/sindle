@@ -32,6 +32,15 @@ final class SettingsStore: ObservableObject {
     @Published var starsOn: Bool        { didSet { put("starsOn", starsOn) } }
     @Published var lockRecordOn: Bool   { didSet { put("lockRecordOn", lockRecordOn) } }
     @Published var widgetStyle: Int     { didSet { put("widgetStyle", widgetStyle) } }
+    // Needle-parity extras
+    @Published var bigIsland: Bool      { didSet { put("bigIsland", bigIsland) } }
+    @Published var turntable: Bool      { didSet { put("turntable", turntable) } }
+    @Published var clockFont: Int       { didSet { put("clockFont", clockFont) } }
+    @Published var screenKeeper: Bool   { didSet { put("screenKeeper", screenKeeper) } }
+    // Key sounds
+    @Published var keySoundsOn: Bool    { didSet { put("keySoundsOn", keySoundsOn) } }
+    @Published var keySoundSet: Int     { didSet { put("keySoundSet", keySoundSet) } }
+    @Published var keySoundVolume: Double { didSet { put("keySoundVolume", keySoundVolume) } }
     // Equalizer, glass, lock screen, lyrics look
     @Published var eqOn: Bool           { didSet { put("eqOn", eqOn) } }
     @Published var eqBars: Int          { didSet { put("eqBars", eqBars) } }
@@ -86,6 +95,10 @@ final class SettingsStore: ObservableObject {
         lyricStyle = Self.int("lyricStyle", 0); lyricScale = Self.num("lyricScale", 1)
         starsOn = Self.flag("starsOn", true); lockRecordOn = Self.flag("lockRecordOn", true)
         widgetStyle = Self.int("widgetStyle", 0)
+        bigIsland = Self.flag("bigIsland", false); turntable = Self.flag("turntable", true)
+        clockFont = Self.int("clockFont", 0); screenKeeper = Self.flag("screenKeeper", false)
+        keySoundsOn = Self.flag("keySoundsOn", false); keySoundSet = Self.int("keySoundSet", 0)
+        keySoundVolume = Self.num("keySoundVolume", 0.5)
         glowOnlyWhilePlaying = Self.flag("glowOnlyWhilePlaying", true); glowColorMode = Self.int("glowColorMode", 0)
         glowR = Self.num("glowR", 1); glowG = Self.num("glowG", 0.4); glowB = Self.num("glowB", 0.3)
         glowEdges = Self.int("glowEdges", 0); glowIntensity = Self.num("glowIntensity", 1)
@@ -130,6 +143,7 @@ enum Pane: String, CaseIterable, Identifiable {
 struct SettingsView: View {
     @ObservedObject var s = SettingsStore.shared
     @ObservedObject var face = FaceLock.shared
+    @ObservedObject var license = Licensing.shared
     var preview: () -> Void
     @State private var pane: Pane? = .general
 
@@ -177,6 +191,19 @@ struct SettingsView: View {
                 Text("If you hide the icon, open Spindle again from Applications to bring these settings back.").font(.caption).foregroundStyle(.secondary)
             }
             Section("Units") { Toggle("Show temperature in °F", isOn: $s.fahrenheit) }
+            Section("Sleep and clock") {
+                Toggle("Keep the screen awake while media plays", isOn: $s.screenKeeper)
+                Picker("Clock font", selection: $s.clockFont) { Text("Rounded").tag(0); Text("Serif").tag(1); Text("Mono").tag(2) }
+                Text("The screen stays on while the island has something to show.").font(.caption).foregroundStyle(.secondary)
+            }
+            Section("Key sounds") {
+                Toggle("Play a click on every key press", isOn: $s.keySoundsOn)
+                Picker("Set", selection: $s.keySoundSet) {
+                    Text("Office").tag(0); Text("Retro").tag(1); Text("Soft").tag(2)
+                }
+                slider("Volume", $s.keySoundVolume, 0...1)
+                Text("Counts keys system-wide; needs Accessibility. Nothing you type is recorded.").font(.caption).foregroundStyle(.secondary)
+            }
             Section("Permissions") {
                 permRow("Screen Recording: equalizer and Beat Glow follow the music", CGPreflightScreenCaptureAccess(), "Privacy_ScreenCapture")
                 permRow("Accessibility: typing speed", AXIsProcessTrusted(), "Privacy_Accessibility")
@@ -193,6 +220,7 @@ struct SettingsView: View {
                 Picker("Shape", selection: $s.floatingIsland) { Text("Notch (attached to the top)").tag(false); Text("Floating oval").tag(true) }
                 Picker("Open with", selection: $s.openOnClick) { Text("Hover").tag(false); Text("Preview, then click").tag(true) }.pickerStyle(.segmented)
                 Toggle("Fade out when nothing is playing", isOn: $s.hideWhenIdle)
+                Toggle("Big island (calendar-sized layout)", isOn: $s.bigIsland)
             }
             Section("Look") {
                 Picker("Background", selection: $s.glassStyle) { Text("Black").tag(false); Text("Glass").tag(true) }.pickerStyle(.segmented)
@@ -261,6 +289,7 @@ struct SettingsView: View {
             Section("Widget") {
                 Toggle("Show the desktop widget", isOn: $s.widgetOn)
                 Picker("Style", selection: $s.widgetStyle) { Text("Turntable").tag(0); Text("Record sleeve").tag(1); Text("Aura").tag(2) }
+                Toggle("Turn the playing cover like a record", isOn: $s.turntable)
                 Text("Click the widget to switch style. Drag it to move it.").font(.caption).foregroundStyle(.secondary)
             }
             Section("Lyrics card") { Toggle("Show lyrics on the desktop", isOn: $s.desktopLyricsOn) }
@@ -336,6 +365,14 @@ struct SettingsView: View {
                 Text("Version 0.1.0")
                 Text("Weather: MET Norway · Lyrics: LRCLIB").font(.caption)
                 Text("Spindle is an independent app and isn't affiliated with Spotify or Apple.").font(.caption).foregroundStyle(.secondary)
+            }
+            Section("Licence and updates") {
+                Text(license.summary).font(.caption)
+                HStack {
+                    Button("Enter a code…") { CodeSheetController.show() }
+                    Button("Check for updates…") { UpdaterController.show() }
+                }
+                Text("Spindle is free. A code is a thank-you, not a paywall; no feature is locked.").font(.caption).foregroundStyle(.secondary)
             }
         }
     }
