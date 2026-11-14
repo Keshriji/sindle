@@ -2,11 +2,11 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 enum Page: Int, CaseIterable {
-    case player, lyrics, weather, status, tray, notes, tasks, clock, wallpapers, typing, diary, mirror
-    static let main: [Page] = [.player, .lyrics, .weather, .status]
-    static let tools: [Page] = [.tray, .notes, .tasks, .clock, .wallpapers, .typing, .diary, .mirror]
+    case player, lyrics, weather, calendar, status, tray, notes, tasks, clock, wallpapers, typing, diary, mirror, mini
+    static let main: [Page] = [.player, .lyrics, .weather, .calendar, .status]
+    static let tools: [Page] = [.tray, .notes, .tasks, .clock, .wallpapers, .typing, .diary, .mirror, .mini]
     var isTool: Bool { Page.tools.contains(self) }
-    var icon: String { ["music.note", "text.quote", "cloud.sun.fill", "headphones", "tray.full", "note.text", "checklist", "alarm", "photo.on.rectangle", "keyboard", "chart.bar.fill", "camera.fill"][rawValue] }
+    var icon: String { ["music.note", "text.quote", "cloud.sun.fill", "calendar", "headphones", "tray.full", "note.text", "checklist", "alarm", "photo.on.rectangle", "keyboard", "chart.bar.fill", "camera.fill", "square.grid.2x2"][rawValue] }
 }
 
 struct IslandView: View {
@@ -27,13 +27,13 @@ struct IslandView: View {
     @State private var page = Page.player
 
     private var w: CGFloat {
-        if open { return 380 }
+        if open { return settings.bigIsland ? 500 : 380 }
         if peek { return 310 }
         let n = IslandPanel.notchWidth                    // wings sit either side of the camera housing
         if let t = status.toast { return n + (t.battery != nil || t.level != nil ? 130 : 230) }
         return player.track == nil ? n : n + 110
     }
-    private var h: CGFloat { open ? 160 : (peek ? 72 : 34) }
+    private var h: CGFloat { open ? (settings.bigIsland ? 210 : 160) : (peek ? 72 : 34) }
     private var radius: CGFloat { (open || peek) ? 28 : 14 }
     private var glassMaterial: Material { [Material.ultraThinMaterial, .thinMaterial, .regularMaterial, .thickMaterial][min(max(settings.glassMaterial, 0), 3)] }
     private var spring: Animation { .spring(response: 0.42 / settings.animSpeed, dampingFraction: 0.74) }
@@ -115,6 +115,7 @@ struct IslandView: View {
                     case .player:  playerPage(t)
                     case .lyrics:  lyricsPage(t)
                     case .weather: weatherPage
+                    case .calendar: CalendarPage()
                     case .status:  statusPage
                     case .tray:    gate(TrayPage(tray: tools.tray))
                     case .notes:   gate(NotesPage(notes: tools.notes))
@@ -124,6 +125,7 @@ struct IslandView: View {
                     case .typing:  TypingPage(typing: tools.typing)
                     case .diary:   gate(DiaryPage(diary: tools.diary))
                     case .mirror:  MirrorPage()
+                    case .mini:    MiniAppsPage(mini: tools.mini)
                     }
                 }
                 .transition(.opacity.combined(with: .scale(scale: 0.96)))
@@ -215,10 +217,16 @@ struct IslandView: View {
     private func playerPage(_ t: Track) -> some View {
         VStack(spacing: 10) {
             HStack(spacing: 12) {
-                AsyncImage(url: t.artworkURL) { $0.resizable().scaledToFill() }
-                    placeholder: { Color.gray.opacity(0.3).overlay(reel(26)) }
-                    .frame(width: 54, height: 54).clipShape(RoundedRectangle(cornerRadius: 10))
-                    .scaleEffect(coverBump ? 1.12 : 1).animation(.spring(response: 0.3, dampingFraction: 0.5), value: coverBump)
+                Group {
+                    if settings.turntable {
+                        TurntableView(url: t.artworkURL, size: 54, playing: t.isPlaying)
+                    } else {
+                        AsyncImage(url: t.artworkURL) { $0.resizable().scaledToFill() }
+                            placeholder: { Color.gray.opacity(0.3).overlay(reel(26)) }
+                            .frame(width: 54, height: 54).clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
+                }
+                .scaleEffect(coverBump ? 1.12 : 1).animation(.spring(response: 0.3, dampingFraction: 0.5), value: coverBump)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(t.title).font(.system(size: 14, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
                     Text(t.artist).font(.system(size: 12)).foregroundStyle(.white.opacity(0.6)).lineLimit(1)
@@ -283,7 +291,7 @@ struct IslandView: View {
         VStack(spacing: 10) {
             if let h = status.headphones {
                 HStack(spacing: 6) {
-                    Image(systemName: "headphones")
+                    TurningAirPods(level: h.left ?? h.main)
                     Text(h.name).lineLimit(1)
                     Spacer()
                 }.font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)

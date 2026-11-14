@@ -15,8 +15,11 @@ struct SpindleApp: App {
                 Toggle("Fade out when nothing is playing", isOn: bind(\.hideWhenIdle))
                 Toggle("Glass background", isOn: bind(\.glassStyle))
                 Toggle("Lock private tabs (Face Unlock)", isOn: bind(\.faceLockOn))
+                Toggle("Big island (calendar-sized layout)", isOn: bind(\.bigIsland))
+                Toggle("Turntable artwork", isOn: bind(\.turntable))
             }
             Toggle("Pop-ups", isOn: bind(\.toastsOn))
+            Toggle("Keep screen awake while playing", isOn: bind(\.screenKeeper))
             Toggle("Volume and brightness bars", isOn: bind(\.edgeSlidersOn))
             Toggle("Desktop widget", isOn: bind(\.widgetOn))
             Toggle("Lyrics on desktop", isOn: bind(\.desktopLyricsOn))
@@ -25,6 +28,10 @@ struct SpindleApp: App {
             Divider()
             Button("Settings…") { delegate.openSettings() }
             Button("Preview lock screen lyrics") { delegate.previewLock() }
+            Divider()
+            Button("Welcome to Spindle") { WelcomeController.show() }
+            Button("Enter a code…") { CodeSheetController.show() }
+            Button("Check for updates…") { UpdaterController.show() }
             Divider()
             Button("Quit Spindle") { NSApp.terminate(nil) }
         }
@@ -52,6 +59,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var bag = Set<AnyCancellable>()
     let player = NowPlaying(), weather = WeatherStore(), lyrics = LyricsStore()
     let system = SystemControls(), status = StatusStore(), tools = Tools(), audio = AudioLevel()
+    let keeper = ScreenKeeper()
 
     func applicationDidFinishLaunching(_ n: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -66,9 +74,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         tools.clock.onRing = { [status] in status.show(Toast(icon: "alarm.fill", text: "Alarm")) }
         system.onChange = { [status] icon, level in status.showHUD(icon: icon, level: level) }
 
-        player.$track.sink { [tools, lyrics, audio] t in
+        player.$track.sink { [tools, lyrics, audio, keeper] t in
             tools.diary.record(t)
             audio.setMusicPlaying(t?.isPlaying == true)
+            keeper.setActive(t != nil && SettingsStore.shared.screenKeeper)
             if let t { lyrics.load(title: t.title, artist: t.artist) }
         }.store(in: &bag)
         SettingsStore.shared.objectWillChange.sink { [weak self] _ in
@@ -86,6 +95,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }.store(in: &bag)
 
         applySettings()                        // window visibility only; cheap
+        if !UserDefaults.standard.bool(forKey: "spindle.welcomeSeen") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { WelcomeController.show() }
+        }
 
         // Everything else starts on the next turn of the run loop: AppleScript, CoreAudio, location
         // and the accessibility check all take time, and none of them may hold up the first frame.
@@ -108,6 +120,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let s = SettingsStore.shared
         set(panel, s.islandOn); edges.forEach { set($0, s.edgeSlidersOn) }
         set(widget, s.widgetOn); set(glow, s.glowOn); set(lyricsWidget, s.desktopLyricsOn)
+        keeper.setActive(s.screenKeeper && player.track != nil)
         audio.setWanted(s.glowOn || s.eqOn)      // no system-audio capture when nothing shows it
     }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { openSettings(); return true }
