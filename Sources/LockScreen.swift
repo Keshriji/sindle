@@ -119,10 +119,10 @@ struct LockScreenView: View {
             let mode = self.mode
             ZStack(alignment: .topLeading) {
                 backdrop(m, mode)
-                card(m, mode)
                 record(m, mode)
                 cover(m, mode)
                 lyricsColumn(m, mode)
+                card(m, mode)          // drawn last: no lyric style can sit on top of the song card
             }
             .frame(width: geo.size.width, height: geo.size.height)
         }
@@ -143,6 +143,7 @@ struct LockScreenView: View {
             }
             .frame(width: m.size.width * 1.12, height: m.size.height * 1.12)
             .blur(radius: 3.2 * m.u)
+            .saturation(1.25)                            // Needle's backdrop: blur 3.2cqw, saturate 1.25
             .brightness(-0.38)
             .position(x: m.size.width / 2, y: m.size.height / 2)
             .opacity(mode == .record ? 0 : 1)
@@ -342,6 +343,8 @@ struct LockCard: View {
         return RoundedRectangle(cornerRadius: 1.3 * u, style: .continuous)
             .fill(glass == 2 ? AnyShapeStyle(Color(white: 0.10).opacity(0.96))
                              : AnyShapeStyle(glass == 1 ? Material.thin : Material.ultraThin))
+            // A little ink under the white so the card reads on a bright cover too.
+            .overlay(RoundedRectangle(cornerRadius: 1.3 * u, style: .continuous).fill(Color.black.opacity(glass == 2 ? 0 : 0.10)))
             .overlay(
                 RoundedRectangle(cornerRadius: 1.3 * u, style: .continuous)
                     .fill(LinearGradient(colors: [.white.opacity(0.17), .white.opacity(0.11)],
@@ -599,7 +602,7 @@ struct LockScreenLyrics: View {
                                    progress: progress,
                                    seed: idx ?? -1,
                                    soft: true,
-                                   scale: max(0.55, min(1.3, 0.078 * u)),
+                                   scale: max(0.5, min(1.0, 0.062 * u)),
                                    tint: currentColour)
             .padding(0.4 * u)
             .id(idx ?? -1)
