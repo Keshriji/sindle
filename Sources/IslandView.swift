@@ -26,6 +26,8 @@ struct IslandView: View {
     @State private var peek = false
     @State private var coverBump = false
     @State private var page = Page.player
+    @State private var scrollMonitor: Any?
+    @State private var lastStep = Date.distantPast
 
     private var w: CGFloat {
         if open { return settings.bigIsland ? 500 : 380 }
@@ -100,8 +102,11 @@ struct IslandView: View {
         .onChange(of: peek) { _, v in
             if v { watchOpenIsland() } else if !open { stopWatching() }
         }
-        .onDisappear { stopWatching() }
-        .onAppear { withAnimation(.linear(duration: 4).repeatForever(autoreverses: false)) { spin = true } }
+        .onDisappear { stopWatching(); stopScroll() }
+        .onAppear {
+            withAnimation(.linear(duration: 4).repeatForever(autoreverses: false)) { spin = true }
+            startScroll()
+        }
         .onChange(of: player.track?.title) { _, _ in
             coverBump = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { coverBump = false }
@@ -139,6 +144,33 @@ struct IslandView: View {
     }
 
     private func stopWatching() { hoverWatch?.invalidate(); hoverWatch = nil }
+
+    // MARK: two-finger swipe between pages
+
+    /// A sideways two-finger swipe steps to the next page, the way Needle moves between them. A
+    /// local monitor is enough here: the island is this app's own window, so its events come to us.
+    private func startScroll() {
+        guard scrollMonitor == nil else { return }
+        scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { e in
+            handleScroll(e)
+            return e
+        }
+    }
+
+    private func stopScroll() {
+        if let m = scrollMonitor { NSEvent.removeMonitor(m) }
+        scrollMonitor = nil
+    }
+
+    /// One page per gesture: a swipe arrives as a stream of small deltas, so only the first one
+    /// after a short pause is allowed to move.
+    private func handleScroll(_ e: NSEvent) {
+        guard open, abs(e.scrollingDeltaX) > abs(e.scrollingDeltaY), abs(e.scrollingDeltaX) > 2 else { return }
+        let now = Date()
+        guard now.timeIntervalSince(lastStep) > 0.35 else { return }
+        lastStep = now
+        step(e.scrollingDeltaX < 0 ? 1 : -1)
+    }
 
     @ViewBuilder private func gate<V: View>(_ v: V) -> some View {
         if settings.faceLockOn && !face.unlocked { LockedPage(face: face) } else { v }
