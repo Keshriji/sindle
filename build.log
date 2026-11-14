@@ -1,0 +1,29 @@
+==> Host: arm64, macOS 15.8.2
+swift-driver version: 1.120.5 Apple Swift version 6.1.2 (swiftlang-6.1.2.1.2 clang-1700.0.13.5)
+Target: arm64-apple-macosx15.0
+Xcode 16.4
+Build version 16F6
+==> swift build -c release
+Building for production...
+[0/4] Write sources
+[1/4] Write swift-version--79AA4F9932D1E87A.txt
+[3/5] Compiling Spindle Animations.swift
+/Users/runner/work/sindle/sindle/Sources/LockLyrics.swift:430:36: error: 'ToastCenter' cannot be constructed because it has no accessible initializers
+428 | // light-weight toast used only for the "Allow Screen Recording, then reopen" one-shot prompt
+429 | enum ToastCenter {
+430 |     @TaskLocal static var shared = ToastCenter()
+    |                                    `- error: 'ToastCenter' cannot be constructed because it has no accessible initializers
+431 |     func show(_: Toast) { /* no-op; Spindle's StatusStore.toast is what renders toasts */ }
+432 | }
+
+macro expansion @TaskLocal:1:47: error: 'ToastCenter' cannot be constructed because it has no accessible initializers
+`- /Users/runner/work/sindle/sindle/Sources/LockLyrics.swift:430:49: note: expanded code originates here
+428 | // light-weight toast used only for the "Allow Screen Recording, then reopen" one-shot prompt
+429 | enum ToastCenter {
+430 |     @TaskLocal static var shared = ToastCenter()
+    +--- macro expansion @TaskLocal ------------------------------------
+    |1 | static let $shared  = TaskLocal(wrappedValue: ToastCenter())
+    |  |                                               `- error: 'ToastCenter' cannot be constructed because it has no accessible initializers
+    +-------------------------------------------------------------------
+431 |     func show(_: Toast) { /* no-op; Spindle's StatusStore.toast is what renders toasts */ }
+432 | }
