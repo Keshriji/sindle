@@ -119,10 +119,10 @@ struct LockScreenView: View {
             let mode = self.mode
             ZStack(alignment: .topLeading) {
                 backdrop(m, mode)
-                record(m, mode)
                 cover(m, mode)
                 lyricsColumn(m, mode)
-                card(m, mode)          // drawn last: no lyric style can sit on top of the song card
+                card(m, mode)          // above the lyrics: no lyric style can sit on top of the card
+                record(m, mode)        // and the small record peeks through the card's slot
             }
             .frame(width: geo.size.width, height: geo.size.height)
         }
