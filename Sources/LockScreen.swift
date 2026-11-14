@@ -587,17 +587,19 @@ struct LockScreenLyrics: View {
         }
     }
 
+    /// Aura turns the line into a constellation: every word is a glowing star, the stars light up as
+    /// the line is sung, and a soft thread joins them — the Needle Aura look, animated per word.
     private var aura: some View {
-        Text(current.isEmpty ? "♪" : current)
-            .font(.system(size: 3.6 * u, weight: .bold, design: .rounded))
-            .foregroundStyle(.white)
-            .shadow(color: currentColour.opacity(0.4), radius: 2.4 * u)
-            .multilineTextAlignment(.center)
-            .lineLimit(3)
-            .minimumScaleFactor(0.5)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        let words = current.split(separator: " ").map(String.init)
+        return ConstellationLyrics(words: words.isEmpty ? ["♪"] : words,
+                                   progress: progress,
+                                   seed: idx ?? -1,
+                                   soft: true,
+                                   scale: max(0.55, min(1.3, 0.078 * u)),
+                                   tint: currentColour)
+            .padding(0.4 * u)
             .id(idx ?? -1)
-            .transition(.opacity.combined(with: .scale(scale: 1.05)))
+            .transition(.opacity)
     }
 }
 

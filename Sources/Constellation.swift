@@ -9,6 +9,7 @@ struct ConstellationLyrics: View {
     let seed: Int                 // every line gets its own seed, so every line is a new shape
     let soft: Bool
     var scale: CGFloat = 1
+    var tint: Color = .white
 
     var body: some View {
         GeometryReader { g in
@@ -41,17 +42,19 @@ struct ConstellationLyrics: View {
                 }
             }
             .trim(from: 0, to: trimEnd)
-            .stroke(Color.white.opacity(soft ? 0.35 : 0.8),
+            .stroke(tint.opacity(soft ? 0.35 : 0.8),
                     style: StrokeStyle(lineWidth: (soft ? 3 : 1.3) * scale, lineCap: .round, lineJoin: .round))
             .blur(radius: soft ? 3 : 0)
-            .shadow(color: .white.opacity(0.5), radius: soft ? 0 : 3)
+            .shadow(color: tint.opacity(0.5), radius: soft ? 0 : 3)
+            // the thread is drawn as the line is sung, on Needle's own drawer curve
+            .animation(.timingCurve(0.32, 0.72, 0, 1, duration: 0.45), value: x)
         }
     }
 
     @ViewBuilder
     private func starsView(n: Int, layout: (points: [CGPoint], above: [Bool]), x: Double, fs: CGFloat) -> some View {
         ForEach(0..<n, id: \.self) { k in
-            StarNode(word: words[k], on: Double(k) <= x, soft: soft, size: Double(fs), scale: scale, above: layout.above[k])
+            StarNode(word: words[k], on: Double(k) <= x, soft: soft, size: Double(fs), scale: scale, above: layout.above[k], tint: tint)
                 .position(layout.points[k])
         }
     }
@@ -96,23 +99,24 @@ struct StarNode: View {
     let size: Double
     let scale: CGFloat
     let above: Bool
+    var tint: Color = .white
     @State private var pop = false
 
     var body: some View {
         ZStack {
             if soft {
                 Circle()
-                    .fill(RadialGradient(colors: [.white, .white.opacity(0)], center: .center, startRadius: 0, endRadius: 14 * scale))
+                    .fill(RadialGradient(colors: [tint, tint.opacity(0)], center: .center, startRadius: 0, endRadius: 14 * scale))
                     .frame(width: 28 * scale, height: 28 * scale)
             } else {
-                Image(systemName: "sparkle").font(.system(size: 16 * scale)).foregroundStyle(.white)
-                    .shadow(color: .white, radius: 6)
+                Image(systemName: "sparkle").font(.system(size: 16 * scale)).foregroundStyle(tint)
+                    .shadow(color: tint, radius: 6)
             }
             Text(word)
                 .font(.system(size: CGFloat(size), weight: soft ? .semibold : .bold, design: .rounded))
                 .foregroundStyle(.white)
                 .shadow(color: .black.opacity(0.6), radius: 3, y: 1)
-                .shadow(color: .white.opacity(soft ? 0.5 : 0.3), radius: soft ? 12 : 5)
+                .shadow(color: tint.opacity(soft ? 0.5 : 0.3), radius: soft ? 12 : 5)
                 .fixedSize()
                 .offset(y: (above ? CGFloat(-1) : CGFloat(1)) * (CGFloat(size) * 0.95 + 8 * scale))
         }
