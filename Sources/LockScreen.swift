@@ -336,8 +336,12 @@ struct LockCard: View {
     }
 
     private var cardBackground: some View {
-        RoundedRectangle(cornerRadius: 1.3 * u, style: .continuous)
-            .fill(.ultraThinMaterial)
+        // Needle's three glasses: Liquid is a thin see-through pane, Clear is thinner still, and Off
+        // drops the material for a solid card that sits on its own.
+        let glass = SettingsStore.shared.lockGlass
+        return RoundedRectangle(cornerRadius: 1.3 * u, style: .continuous)
+            .fill(glass == 2 ? AnyShapeStyle(Color(white: 0.10).opacity(0.96))
+                             : AnyShapeStyle(glass == 1 ? Material.thin : Material.ultraThin))
             .overlay(
                 RoundedRectangle(cornerRadius: 1.3 * u, style: .continuous)
                     .fill(LinearGradient(colors: [.white.opacity(0.17), .white.opacity(0.11)],
@@ -562,7 +566,7 @@ struct LockScreenLyrics: View {
                     .font(.system(size: (d == 0 ? 3.2 : 1.8) * u,
                                   weight: d == 0 ? .heavy : .medium, design: .rounded))
                     .foregroundStyle(.white.opacity(d == 0 ? 1 : 0.55 - Double(abs(d)) * 0.15))
-                    .blur(radius: CGFloat(abs(d)) * 0.2 * u)
+                    .blur(radius: CGFloat(abs(d)) * (0.04 + 0.32 * SettingsStore.shared.lensBend) * u)
                     .lineLimit(1)
                     .minimumScaleFactor(0.5)
                     .frame(maxWidth: .infinity)
