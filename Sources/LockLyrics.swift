@@ -89,6 +89,7 @@ final class LockLyrics {
     private var panel: LockLyricsPanel?
     private var clickMonitor: Any?
     private var previewWork: DispatchWorkItem?
+    private var previewing = false
     init(player: NowPlaying, lyrics: LyricsStore) { self.player = player; self.lyrics = lyrics }
 
     func start() {
@@ -105,6 +106,8 @@ final class LockLyrics {
         guard SettingsStore.shared.lockLyricsOn || preview else { return }
         if panel == nil { panel = LockLyricsPanel(player: player, lyrics: lyrics) }
         guard let panel else { return }
+        previewing = preview
+        if !preview { click("Tink") }        // a click as your Mac locks, like a phone
         panel.ignoresMouseEvents = !preview
         panel.present()
         installMonitor(active: !preview)
@@ -119,7 +122,14 @@ final class LockLyrics {
     func hide() {
         previewWork?.cancel(); previewWork = nil
         installMonitor(active: false)
+        if !previewing { click("Pop") }       // and a lighter click as it unlocks
+        previewing = false
         panel?.dismiss()
+    }
+
+    private func click(_ name: String) {
+        guard SettingsStore.shared.lockSoundsOn else { return }
+        NSSound(named: NSSound.Name(name))?.play()
     }
 
     private func installMonitor(active: Bool) {
