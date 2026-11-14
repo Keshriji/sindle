@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import UniformTypeIdentifiers
 
 enum Page: Int, CaseIterable {
@@ -88,7 +89,18 @@ struct IslandView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .animation(spring, value: status.toast)
-        .onChange(of: open) { _, o in if !o { face.lock() } }
+        .onChange(of: open) { _, o in
+            if o {
+                watchOpenIsland()
+            } else {
+                face.lock()
+                if !peek { stopWatching() }
+            }
+        }
+        .onChange(of: peek) { _, v in
+            if v { watchOpenIsland() } else if !open { stopWatching() }
+        }
+        .onDisappear { stopWatching() }
         .onAppear { withAnimation(.linear(duration: 4).repeatForever(autoreverses: false)) { spin = true } }
         .onChange(of: player.track?.title) { _, _ in
             coverBump = true
@@ -96,6 +108,37 @@ struct IslandView: View {
             if let t = player.track { lyrics.load(title: t.title, artist: t.artist) }
         }
     }
+
+    // MARK: keep the island from hanging open
+
+    @State private var hoverWatch: Timer?
+
+    /// Where the island currently is on screen, in the bottom-left coordinates NSEvent reports.
+    private var islandOnScreen: CGRect? {
+        guard let f = NSScreen.main?.frame else { return nil }
+        let width = w * settings.islandScale
+        let height = h * settings.islandScale
+        let top = f.maxY - (settings.floatingIsland ? 10 : 0)
+        return CGRect(x: f.midX - width / 2, y: top - height, width: width, height: height)
+    }
+
+    /// macOS only delivers the hover exit while this app is active, so a missed exit used to leave
+    /// the island open over everything. While it is open, look at the pointer itself.
+    private func watchOpenIsland() {
+        guard hoverWatch == nil else { return }
+        hoverWatch = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { _ in
+            DispatchQueue.main.async { closeIfPointerLeft() }
+        }
+    }
+
+    private func closeIfPointerLeft() {
+        guard open || peek, !pinned, !dropping else { return }
+        guard let box = islandOnScreen else { return }
+        guard !box.insetBy(dx: -4, dy: -4).contains(NSEvent.mouseLocation) else { return }
+        withAnimation(spring) { open = false; peek = false }
+    }
+
+    private func stopWatching() { hoverWatch?.invalidate(); hoverWatch = nil }
 
     @ViewBuilder private func gate<V: View>(_ v: V) -> some View {
         if settings.faceLockOn && !face.unlocked { LockedPage(face: face) } else { v }
