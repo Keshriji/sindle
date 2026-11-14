@@ -55,6 +55,7 @@ final class SettingsStore: ObservableObject {
     @Published var lockTitleOn: Bool    { didSet { put("lockTitleOn", lockTitleOn) } }
     @Published var lockNextLineOn: Bool { didSet { put("lockNextLineOn", lockNextLineOn) } }
     @Published var lockControlsOn: Bool { didSet { put("lockControlsOn", lockControlsOn) } }
+    @Published var lockSoundsOn: Bool   { didSet { put("lockSoundsOn", lockSoundsOn) } }
     @Published var lyricBackground: Int { didSet { put("lyricBackground", lyricBackground) } } // 0 dark, 1 album blur
     @Published var lyricScatter: Double { didSet { put("lyricScatter", lyricScatter) } }
     @Published var lyricOffset: Double  { didSet { put("lyricOffset", lyricOffset) } }       // seconds the lyrics run early
@@ -89,7 +90,7 @@ final class SettingsStore: ObservableObject {
         edgeSlidersOn = Self.flag("edgeSlidersOn", true); widgetOn = Self.flag("widgetOn", true)
         desktopLyricsOn = Self.flag("desktopLyricsOn", false); glowOn = Self.flag("glowOn", true)
         lockLyricsOn = Self.flag("lockLyricsOn", true)
-        floatingIsland = Self.flag("floatingIsland", false); openOnClick = Self.flag("openOnClick", false)
+        floatingIsland = Self.flag("floatingIsland", false); openOnClick = Self.flag("openOnClick", true)
         hideWhenIdle = Self.flag("hideWhenIdle", false); glassStyle = Self.flag("glassStyle", false)
         islandScale = Self.num("islandScale", 1); animSpeed = Self.num("animSpeed", 1)
         lyricStyle = Self.int("lyricStyle", 0); lyricScale = Self.num("lyricScale", 1)
@@ -110,7 +111,8 @@ final class SettingsStore: ObservableObject {
         glassTint = Self.num("glassTint", 0.3); keepOpen = Self.flag("keepOpen", false)
         lockStage = Self.int("lockStage", 2); lockDim = Self.num("lockDim", 0.6); lockRecordSize = Self.num("lockRecordSize", 160)
         lockTitleOn = Self.flag("lockTitleOn", true); lockNextLineOn = Self.flag("lockNextLineOn", true)
-        lockControlsOn = Self.flag("lockControlsOn", true); lyricBackground = Self.int("lyricBackground", 1)
+        lockControlsOn = Self.flag("lockControlsOn", true); lockSoundsOn = Self.flag("lockSoundsOn", true)
+        lyricBackground = Self.int("lyricBackground", 1)
         lyricOffset = Self.num("lyricOffset", 0.35); lyricScatter = Self.num("lyricScatter", 0.3); lyricLean = Self.num("lyricLean", 0)
         lyricColorMode = Self.int("lyricColorMode", 0)
         lyricR = Self.num("lyricR", 1); lyricG = Self.num("lyricG", 1); lyricB = Self.num("lyricB", 1)
@@ -273,6 +275,7 @@ struct SettingsView: View {
                 Toggle("Show on the lock screen", isOn: $s.lockLyricsOn)
                 Picker("Starts with", selection: $s.lockStage) { Text("Record").tag(0); Text("Cover").tag(1); Text("Lyrics").tag(2) }.pickerStyle(.segmented)
                 Toggle("Play, pause and skip in the card", isOn: $s.lockControlsOn)
+                Toggle("Click when the Mac locks and unlocks", isOn: $s.lockSoundsOn)
             }
             Section("Look") {
                 Toggle("Show the small record in cover and lyrics", isOn: $s.lockRecordOn)
