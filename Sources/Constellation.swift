@@ -68,7 +68,12 @@ struct ConstellationLyrics: View {
         var rows: [[Int]] = []
         for _ in 0..<60 {
             rows = wrap(fs: fs, usableW: usableW)
-            let widest = rows.map { $0.map { width(words[$0], fs) }.reduce(0, +) + CGFloat(max($0.count - 1, 0)) * fs * 0.5 }.max() ?? 0
+            var widest = CGFloat(0)
+            for row in rows {
+                let text = row.map { width(words[$0], fs) }.reduce(0, +)
+                let gaps = CGFloat(max(row.count - 1, 0)) * fs * 0.5
+                widest = max(widest, text + gaps)
+            }
             let height = CGFloat(rows.count) * fs * rowStep
             if widest <= usableW && height <= size.height - 2 * m { break }
             fs *= 0.93
