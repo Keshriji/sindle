@@ -45,45 +45,50 @@ struct ConstellationLyrics: View {
         max(4, min(20 * scale, size.width * 0.04, size.height * 0.04))
     }
 
-    /// Wraps the words like text, shrinking until they fit the column in at most four rows.
+    /// Real width of a word in the font the star uses. Guessing at "0.55 of the font size per letter" made
+    /// neighbouring words overlap, because a bold rounded face is wider than that.
+    private func width(_ word: String, _ fs: CGFloat) -> CGFloat {
+        let base = NSFont.systemFont(ofSize: fs, weight: .semibold)
+        let font = base.fontDescriptor.withDesign(.rounded).flatMap { NSFont(descriptor: $0, size: fs) } ?? base
+        return (word as NSString).size(withAttributes: [.font: font]).width * 1.08 + fs * 0.3
+    }
+
+    /// Wraps the words like text, shrinking until every row fits the column and no row touches the next.
     private func layout(_ size: CGSize) -> Layout {
         let n = words.count
         guard n > 0, size.width > 4, size.height > 4 else {
-            // First pass of a GeometryReader can be zero-sized: still return one point per word so
-            // the stars can be indexed safely.
+            // First pass of a GeometryReader can be zero-sized: still return one point per word.
             return Layout(points: Array(repeating: CGPoint(x: size.width / 2, y: size.height / 2), count: max(words.count, 1)))
         }
         let m = margin(size)
         let usableW = max(20, size.width - 2 * m)
-        let longest = CGFloat(words.map { $0.count }.max() ?? 1)
-
+        let rowStep: CGFloat = 1.9                                   // row spacing in font sizes: label, glow and thread never meet the next row
         var fs = CGFloat(max(11, min(46 * Double(scale), (52 - Double(n) * 2.2) * Double(scale))))
-        fs = min(fs, usableW / max(longest * 0.55, 0.55))          // one word never wider than the column
-        let maxRows = min(4, max(1, n))
 
         var rows: [[Int]] = []
-        for _ in 0..<40 {                                            // shrink until it wraps and fits
+        for _ in 0..<60 {
             rows = wrap(fs: fs, usableW: usableW)
-            let height = CGFloat(rows.count) * fs * 1.55
-            if rows.count <= maxRows && height <= size.height - 2 * m { break }
-            fs *= 0.92
+            let widest = rows.map { $0.map { width(words[$0], fs) }.reduce(0, +) + CGFloat(max($0.count - 1, 0)) * fs * 0.5 }.max() ?? 0
+            let height = CGFloat(rows.count) * fs * rowStep
+            if widest <= usableW && height <= size.height - 2 * m { break }
+            fs *= 0.93
             if fs < 8 { fs = 8; rows = wrap(fs: fs, usableW: usableW); break }
         }
 
-        // Rows stack through the column; the thread drifts a little inside each row.
         var pts: [CGPoint] = []
         let count = max(rows.count, 1)
-        let blockH = CGFloat(count) * fs * 1.55
+        let blockH = CGFloat(count) * fs * rowStep
         let top = m + max(0, (size.height - 2 * m - blockH) / 2)
         for (r, row) in rows.enumerated() {
-            let widths = row.map { CGFloat(words[$0].count) * fs * 0.55 }
-            let rowW = widths.reduce(0, +) + CGFloat(max(row.count - 1, 0)) * fs * 0.42
+            let widths = row.map { width(words[$0], fs) }
+            let gap = fs * 0.5
+            let rowW = widths.reduce(0, +) + CGFloat(max(row.count - 1, 0)) * gap
             var x = m + max(0, (usableW - rowW) / 2)
-            let rowY = top + CGFloat(r) * fs * 1.55 + fs * 0.78
+            let rowY = top + CGFloat(r) * fs * rowStep + fs * rowStep / 2
             for (i, w) in widths.enumerated() {
-                let drift = sin(Double(seed) * 0.7 + Double(r) * 2.1 + Double(i) * 1.3) * Double(fs) * 0.16
+                let drift = sin(Double(seed) * 0.7 + Double(r) * 2.1 + Double(i) * 1.3) * Double(fs) * 0.12
                 pts.append(CGPoint(x: x + w / 2, y: rowY + CGFloat(drift)))
-                x += w + fs * 0.42
+                x += w + gap
             }
         }
         return Layout(points: pts, size: fs)
@@ -93,12 +98,12 @@ struct ConstellationLyrics: View {
         var rows: [[Int]] = [[]]
         var used: CGFloat = 0
         for (i, w) in words.enumerated() {
-            let width = CGFloat(w.count) * fs * 0.55
-            let gap = used > 0 ? fs * 0.42 : 0
-            if used > 0, used + gap + width > usableW {
-                rows.append([i]); used = width
+            let wd = width(w, fs)
+            let gap = used > 0 ? fs * 0.5 : 0
+            if used > 0, used + gap + wd > usableW {
+                rows.append([i]); used = wd
             } else {
-                rows[rows.count - 1].append(i); used += gap + width
+                rows[rows.count - 1].append(i); used += gap + wd
             }
         }
         return rows
@@ -160,26 +165,57 @@ struct StarNode: View {
     }
 }
 
-/// The album cover, blown up and blurred, drifting slowly behind the words, with a second
-/// counter-rotating layer for depth and a dark vignette. Colours come straight from the cover.
-struct AuraBackground: View {
+/// Drifting panes of frosted glass over the blurred album cover. Each pane is a blurred, brightened copy of the
+/// cover clipped to a rounded slab with a soft white rim, so light seems to bend through it. Slow, calm, and cheap
+/// enough to run on the lock screen (15 frames a second).
+struct GlassBackdrop: View {
     let url: URL?
+    private struct Slab { let x: Double, y: Double, w: Double, h: Double, speed: Double, phase: Double, tilt: Double }
+    private let slabs: [Slab] = [
+        Slab(x: 0.22, y: 0.30, w: 0.46, h: 0.36, speed: 0.050, phase: 0.0, tilt: -9),
+        Slab(x: 0.74, y: 0.26, w: 0.36, h: 0.46, speed: 0.040, phase: 1.7, tilt: 7),
+        Slab(x: 0.50, y: 0.72, w: 0.56, h: 0.30, speed: 0.060, phase: 3.1, tilt: -4),
+        Slab(x: 0.88, y: 0.78, w: 0.30, h: 0.34, speed: 0.045, phase: 4.6, tilt: 11)
+    ]
+
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1.0 / 15.0)) { tl in
-            let t = tl.date.timeIntervalSinceReferenceDate
-            ZStack {
-                Color.black
-                AsyncImage(url: url) { $0.resizable().scaledToFill() } placeholder: { Color.clear }
-                    .scaleEffect(1.6 + 0.1 * sin(t * 0.2)).rotationEffect(.degrees(t * 1.2))
-                    .offset(x: 80 * sin(t * 0.11), y: 50 * cos(t * 0.13))
-                    .blur(radius: 70).saturation(1.6).opacity(0.85)
-                AsyncImage(url: url) { $0.resizable().scaledToFill() } placeholder: { Color.clear }
-                    .scaleEffect(1.2).rotationEffect(.degrees(-t * 2)).offset(x: -70 * cos(t * 0.09))
-                    .blur(radius: 110).blendMode(.screen).opacity(0.45)
-                Color.black.opacity(0.3)
-                RadialGradient(colors: [.clear, .black.opacity(0.55)], center: .center, startRadius: 200, endRadius: 900)
+        GeometryReader { g in
+            TimelineView(.periodic(from: .now, by: 1.0 / 15.0)) { tl in
+                let t = tl.date.timeIntervalSinceReferenceDate
+                ZStack {
+                    Color.black
+                    cover(g.size).blur(radius: 40).saturation(1.5).opacity(0.9)
+                    ForEach(0..<slabs.count, id: \.self) { i in
+                        let s = slabs[i]
+                        let w = g.size.width * s.w, h = g.size.height * s.h
+                        let dx = sin(t * s.speed + s.phase) * g.size.width * 0.05
+                        let dy = cos(t * s.speed * 0.8 + s.phase) * g.size.height * 0.05
+                        ZStack {
+                            cover(g.size).blur(radius: 14).saturation(1.35).brightness(0.14)
+                                .offset(x: -dx * 3, y: -dy * 3)                  // the cover slides behind the pane: that is the "bend"
+                            RoundedRectangle(cornerRadius: min(w, h) * 0.2, style: .continuous).fill(Color.white.opacity(0.07))
+                        }
+                        .frame(width: w, height: h)
+                        .clipShape(RoundedRectangle(cornerRadius: min(w, h) * 0.2, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: min(w, h) * 0.2, style: .continuous)
+                            .strokeBorder(LinearGradient(colors: [.white.opacity(0.55), .white.opacity(0.05), .white.opacity(0.25)],
+                                                         startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.2))
+                        .shadow(color: .black.opacity(0.25), radius: 18, y: 8)
+                        .rotationEffect(.degrees(s.tilt + sin(t * s.speed * 1.3 + s.phase) * 3))
+                        .position(x: g.size.width * s.x + dx, y: g.size.height * s.y + dy)
+                    }
+                    Color.black.opacity(0.30)                                    // keeps white lyrics readable on bright covers
+                    RadialGradient(colors: [.clear, .black.opacity(0.5)], center: .center,
+                                   startRadius: g.size.width * 0.25, endRadius: g.size.width * 0.8)
+                }
+                .frame(width: g.size.width, height: g.size.height)
+                .clipped()
             }
-            .ignoresSafeArea().clipped()
         }
+    }
+
+    private func cover(_ size: CGSize) -> some View {
+        AsyncImage(url: url) { $0.resizable().scaledToFill() } placeholder: { Color.clear }
+            .frame(width: size.width * 1.2, height: size.height * 1.2)
     }
 }

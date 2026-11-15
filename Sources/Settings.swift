@@ -28,7 +28,6 @@ final class SettingsStore: ObservableObject {
     @Published var animSpeed: Double    { didSet { put("animSpeed", animSpeed) } }
     // Lyrics / lock / desktop
     @Published var lyricStyle: Int      { didSet { put("lyricStyle", lyricStyle) } }
-    @Published var lyricScale: Double   { didSet { put("lyricScale", lyricScale) } }
     @Published var starsOn: Bool        { didSet { put("starsOn", starsOn) } }
     @Published var lockRecordOn: Bool   { didSet { put("lockRecordOn", lockRecordOn) } }
     @Published var widgetStyle: Int     { didSet { put("widgetStyle", widgetStyle) } }
@@ -61,7 +60,6 @@ final class SettingsStore: ObservableObject {
     @Published var lyricBackground: Int { didSet { put("lyricBackground", lyricBackground) } } // 0 dark, 1 album blur
     @Published var lyricScatter: Double { didSet { put("lyricScatter", lyricScatter) } }
     @Published var lyricOffset: Double  { didSet { put("lyricOffset", lyricOffset) } }       // seconds the lyrics run early
-    @Published var lyricLean: Double    { didSet { put("lyricLean", lyricLean) } }
     @Published var lyricColorMode: Int  { didSet { put("lyricColorMode", lyricColorMode) } }   // 0 white, 1 album, 2 custom
     @Published var lyricR: Double       { didSet { put("lyricR", lyricR) } }
     @Published var lyricG: Double       { didSet { put("lyricG", lyricG) } }
@@ -76,8 +74,6 @@ final class SettingsStore: ObservableObject {
     @Published var glowIntensity: Double { didSet { put("glowIntensity", glowIntensity) } }
     @Published var glowThickness: Double { didSet { put("glowThickness", glowThickness) } }
     @Published var glowBlur: Double     { didSet { put("glowBlur", glowBlur) } }
-    @Published var glowSensitivity: Double { didSet { put("glowSensitivity", glowSensitivity) } }
-    @Published var glowDecay: Double    { didSet { put("glowDecay", glowDecay) } }
     @Published var glowBPM: Double      { didSet { put("glowBPM", glowBPM) } }
     // Other
     @Published var faceLockOn: Bool     { didSet { put("faceLockOn", faceLockOn) } }
@@ -95,7 +91,7 @@ final class SettingsStore: ObservableObject {
         floatingIsland = Self.flag("floatingIsland", false); openOnClick = Self.flag("openOnClick", true)
         hideWhenIdle = Self.flag("hideWhenIdle", false); glassStyle = Self.flag("glassStyle", false)
         islandScale = Self.num("islandScale", 1); animSpeed = Self.num("animSpeed", 1)
-        lyricStyle = Self.int("lyricStyle", 0); lyricScale = Self.num("lyricScale", 1)
+        lyricStyle = Self.int("lyricStyle", 0)
         starsOn = Self.flag("starsOn", true); lockRecordOn = Self.flag("lockRecordOn", true)
         widgetStyle = Self.int("widgetStyle", 0)
         bigIsland = Self.flag("bigIsland", false); turntable = Self.flag("turntable", true)
@@ -106,7 +102,7 @@ final class SettingsStore: ObservableObject {
         glowR = Self.num("glowR", 1); glowG = Self.num("glowG", 0.4); glowB = Self.num("glowB", 0.3)
         glowEdges = Self.int("glowEdges", 0); glowIntensity = Self.num("glowIntensity", 1)
         glowThickness = Self.num("glowThickness", 6); glowBlur = Self.num("glowBlur", 12)
-        glowSensitivity = Self.num("glowSensitivity", 6); glowDecay = Self.num("glowDecay", 0.85)
+        
         glowBPM = Self.num("glowBPM", 100)
         eqOn = Self.flag("eqOn", true); eqBars = Self.int("eqBars", 5); eqColorMode = Self.int("eqColorMode", 0)
         eqSensitivity = Self.num("eqSensitivity", 1); glassMaterial = Self.int("glassMaterial", 0)
@@ -116,7 +112,7 @@ final class SettingsStore: ObservableObject {
         lockControlsOn = Self.flag("lockControlsOn", true); lockSoundsOn = Self.flag("lockSoundsOn", true)
         lockGlass = Self.int("lockGlass", 0); lensBend = Self.num("lensBend", 0.5)
         lyricBackground = Self.int("lyricBackground", 1)
-        lyricOffset = Self.num("lyricOffset", 0.35); lyricScatter = Self.num("lyricScatter", 0.3); lyricLean = Self.num("lyricLean", 0)
+        lyricOffset = Self.num("lyricOffset", 0.35); lyricScatter = Self.num("lyricScatter", 0.3)
         lyricColorMode = Self.int("lyricColorMode", 0)
         lyricR = Self.num("lyricR", 1); lyricG = Self.num("lyricG", 1); lyricB = Self.num("lyricB", 1)
         faceLockOn = Self.flag("faceLockOn", false); fahrenheit = Self.flag("fahrenheit", false)
@@ -128,7 +124,7 @@ final class SettingsStore: ObservableObject {
 
     func resetGlow() {
         glowOnlyWhilePlaying = true; glowColorMode = 0; glowR = 1; glowG = 0.4; glowB = 0.3; glowEdges = 0
-        glowIntensity = 1; glowThickness = 6; glowBlur = 12; glowSensitivity = 6; glowDecay = 0.85; glowBPM = 100
+        glowIntensity = 1; glowThickness = 6; glowBlur = 12; glowBPM = 100
     }
 }
 
@@ -247,7 +243,6 @@ struct SettingsView: View {
                 Picker("Lyric style", selection: $s.lyricStyle) {
                     Text("Stars").tag(0); Text("Big Words").tag(1); Text("Lens").tag(2); Text("Terminal").tag(3); Text("Aura").tag(4)
                 }
-                slider("Text size", $s.lyricScale, 0.6...1.4)
                 slider("Timing (seconds early)", $s.lyricOffset, -2...2)
                 Toggle("Twinkling star background", isOn: $s.starsOn)
             }
@@ -270,7 +265,6 @@ struct SettingsView: View {
             }
             Section("Motion") {
                 slider("Scatter (Big Words)", $s.lyricScatter, 0...1)
-                slider("Lean", $s.lyricLean, -12...12, "%.0f°")
             }
 
         case .lock:
@@ -332,10 +326,8 @@ struct SettingsView: View {
                 slider("Softness", $s.glowBlur, 4...40, "%.0f")
             }
             Section("Reaction") {
-                slider("Sensitivity", $s.glowSensitivity, 1...14, "%.1f")
-                slider("Fade speed", $s.glowDecay, 0.5...0.97)
                 slider("Steady pulse (BPM)", $s.glowBPM, 60...180, "%.0f")
-                Text("Sensitivity and fade speed apply when Spindle can hear system audio (macOS asks for Screen Recording permission). Without it, the glow pulses at the BPM above.").font(.caption).foregroundStyle(.secondary)
+                Text("When Spindle can hear system audio (macOS asks for Screen Recording permission) the glow follows the music. Without it, the glow pulses at the BPM above.").font(.caption).foregroundStyle(.secondary)
             }
             Section { Button("Reset Beat Glow settings") { s.resetGlow() } }
 
@@ -344,7 +336,6 @@ struct SettingsView: View {
                 Toggle("Show the equalizer in the island", isOn: $s.eqOn)
                 Stepper("Bars: \(s.eqBars)", value: $s.eqBars, in: 3...8)
                 Picker("Colour", selection: $s.eqColorMode) { Text("White").tag(0); Text("Rainbow").tag(1) }
-                slider("Sensitivity", $s.eqSensitivity, 0.3...3)
                 Text("Moves with the real sound when Spindle can hear system audio (Screen Recording permission). Without it, the bars play a gentle demo pattern.").font(.caption).foregroundStyle(.secondary)
             }
 

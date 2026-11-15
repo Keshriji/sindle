@@ -26,7 +26,6 @@ final class SystemControls: ObservableObject {
     private typealias SetB = @convention(c) (UInt32, Float) -> Int32
     private let lib = dlopen("/System/Library/PrivateFrameworks/DisplayServices.framework/DisplayServices", RTLD_LAZY)
 
-    var brightnessSupported: Bool { getBrightness != nil && setBrightness != nil }
     private var getBrightness: GetB? {
         guard let lib, let p = dlsym(lib, "DisplayServicesGetBrightness") else { return nil }
         return unsafeBitCast(p, to: GetB.self)

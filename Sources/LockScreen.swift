@@ -120,9 +120,9 @@ struct LockScreenView: View {
             ZStack(alignment: .topLeading) {
                 backdrop(m, mode)
                 cover(m, mode)
-                lyricsColumn(m, mode)
-                card(m, mode)          // above the lyrics: no lyric style can sit on top of the card
-                record(m, mode)        // and the small record peeks through the card's slot
+                lyricsColumn(m, mode).zIndex(1)
+                card(m, mode).zIndex(10)      // always above the lyrics, whatever the lyric style
+                record(m, mode).zIndex(11)    // and the small record peeks through the card's slot
             }
             .frame(width: geo.size.width, height: geo.size.height)
         }
@@ -149,8 +149,11 @@ struct LockScreenView: View {
             .opacity(mode == .record ? 0 : 1)
             .animation(.easeInOut(duration: 1.6), value: mode)
 
+            if s.lyricStyle == 4 && mode == .lyrics {
+                GlassBackdrop(url: track?.artworkURL).transition(.opacity)       // Aura gets the drifting glass
+            }
             if s.starsOn && mode == .lyrics {
-                StarField().opacity(0.7)
+                StarField().opacity(s.lyricStyle == 4 ? 0.35 : 0.7)
             }
             Color.black.opacity(0.30 + s.lockDim * 0.2)
         }
@@ -464,11 +467,22 @@ struct LockScreenLyrics: View {
     let scatter: Double
     let burst: Int
 
-    private var idx: Int? { track.flatMap { lyrics.index(at: $0.position) } }
+    /// Where the song is right now: the last reading plus the time since, plus the timing offset from Settings.
+    private var livePos: Double {
+        guard let t = track else { return 0 }
+        return t.position + (t.isPlaying ? Date().timeIntervalSince(t.polledAt) : 0) + SettingsStore.shared.lyricOffset
+    }
+    private var idx: Int? { track != nil ? lyrics.index(at: livePos) : nil }
     private var lineHeight: CGFloat { 1.78 * u * 1.22 + 2 * 1.15 * u }
     private var current: String { text(idx ?? -1) }
 
     var body: some View {
+        TimelineView(.periodic(from: .now, by: 0.1)) { _ in content }
+            .frame(width: size.width, height: size.height)
+            .clipped()
+    }
+
+    private var content: some View {
         Group {
             if lyrics.lines.isEmpty {
                 Text("No synced lyrics found")
@@ -485,8 +499,6 @@ struct LockScreenLyrics: View {
                 }
             }
         }
-        .frame(width: size.width, height: size.height)
-        .clipped()
     }
 
     private func text(_ i: Int) -> String {
@@ -511,7 +523,7 @@ struct LockScreenLyrics: View {
         guard let t = track, let i = idx, i < lyrics.lines.count else { return 0 }
         let start = lyrics.lines[i].t
         let end = i + 1 < lyrics.lines.count ? lyrics.lines[i + 1].t : start + 4
-        return max(0, min(0.999, (t.position - start) / max(end - start, 0.5)))
+        return max(0, min(0.999, (livePos - start) / max(end - start, 0.5)))
     }
 
     private var stars: some View {
