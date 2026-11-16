@@ -18,6 +18,11 @@ final class NowPlaying: ObservableObject {
     private var lastSource = ""
     private var polling = false          // touched on the main thread only
 
+    /// All Apple Events go through one queue (AppleScript objects are not meant to be used from many threads)
+    /// and each script is compiled once instead of being re-parsed every second.
+    private let scriptQueue = DispatchQueue(label: "spindle.applescript", qos: .utility)
+    private var compiled: [String: NSAppleScript] = [:]
+
     private static let cacheDir: URL = {
         let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSTemporaryDirectory())
@@ -44,7 +49,7 @@ final class NowPlaying: ObservableObject {
     private func poll() {
         guard !polling else { return }
         polling = true
-        DispatchQueue.global(qos: .utility).async { [weak self] in
+        scriptQueue.async { [weak self] in
             guard let self else { return }
             let began = Date()
             var result: Track?
@@ -98,9 +103,18 @@ final class NowPlaying: ObservableObject {
     }
 
     private func run(_ src: String) -> String? {
+        let script: NSAppleScript
+        if let known = compiled[src] {
+            script = known
+        } else {
+            guard let fresh = NSAppleScript(source: src) else { return nil }
+            var e: NSDictionary?
+            fresh.compileAndReturnError(&e)
+            compiled[src] = fresh
+            script = fresh
+        }
         var err: NSDictionary?
-        let out = NSAppleScript(source: src)?.executeAndReturnError(&err)
-        return out?.stringValue
+        return script.executeAndReturnError(&err).stringValue
     }
 
     // MARK: - Apple Music artwork
@@ -153,7 +167,7 @@ final class NowPlaying: ObservableObject {
     func send(_ command: String) {   // "playpause", "next track", "previous track"
         let app = (track?.source.isEmpty == false ? track?.source : nil) ?? (lastSource.isEmpty ? targetApp : lastSource)
         guard let app else { return }
-        DispatchQueue.global().async { _ = self.run("tell application \"\(app)\" to \(command)") }
+        scriptQueue.async { _ = self.run("tell application \"\(app)\" to \(command)") }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self.poll() }
     }
 }

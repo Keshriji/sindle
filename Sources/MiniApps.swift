@@ -12,17 +12,25 @@ final class MiniStore: ObservableObject {
     @Published var pick = "🎲"
 
     private var timer: Timer?
+    private var startedAt = Date()
+    private var base = 0.0
 
-    func start() {
-        guard timer == nil else { return }
-        timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            guard let self, self.running else { return }
-            self.elapsed += 0.1
+    func start() {}      // nothing to do until the stopwatch is started
+
+    func toggle() {
+        running.toggle()
+        if running {
+            startedAt = Date()
+            timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+                guard let self else { return }
+                self.elapsed = self.base + Date().timeIntervalSince(self.startedAt)
+            }
+        } else {
+            timer?.invalidate(); timer = nil
+            base = elapsed
         }
     }
-
-    func toggle() { running.toggle() }
-    func reset() { running = false; elapsed = 0 }
+    func reset() { timer?.invalidate(); timer = nil; running = false; elapsed = 0; base = 0 }
     func roll() { dice = Int.random(in: 1...6) }
     func flip() { heads = Bool.random() }
     func choose() { pick = ["🎲", "🎯", "🚀", "🌙", "⭐️", "🎸", "🍀", "🔥"].randomElement() ?? "🎲" }

@@ -54,7 +54,18 @@ struct ConstellationLyrics: View {
     }
 
     /// Wraps the words like text, shrinking until every row fits the column and no row touches the next.
+    private static var cache: [String: Layout] = [:]
+
     private func layout(_ size: CGSize) -> Layout {
+        let key = "\(seed)|\(Int(size.width))x\(Int(size.height))|\(scale)|" + words.joined(separator: " ")
+        if let hit = Self.cache[key] { return hit }
+        let made = computeLayout(size)
+        if Self.cache.count > 24 { Self.cache.removeAll() }
+        Self.cache[key] = made
+        return made
+    }
+
+    private func computeLayout(_ size: CGSize) -> Layout {
         let n = words.count
         guard n > 0, size.width > 4, size.height > 4 else {
             // First pass of a GeometryReader can be zero-sized: still return one point per word.
@@ -68,12 +79,7 @@ struct ConstellationLyrics: View {
         var rows: [[Int]] = []
         for _ in 0..<60 {
             rows = wrap(fs: fs, usableW: usableW)
-            var widest = CGFloat(0)
-            for row in rows {
-                let text = row.map { width(words[$0], fs) }.reduce(0, +)
-                let gaps = CGFloat(max(row.count - 1, 0)) * fs * 0.5
-                widest = max(widest, text + gaps)
-            }
+            let widest = rows.map { $0.map { width(words[$0], fs) }.reduce(0, +) + CGFloat(max($0.count - 1, 0)) * fs * 0.5 }.max() ?? 0
             let height = CGFloat(rows.count) * fs * rowStep
             if widest <= usableW && height <= size.height - 2 * m { break }
             fs *= 0.93
@@ -175,6 +181,8 @@ struct StarNode: View {
 /// enough to run on the lock screen (15 frames a second).
 struct GlassBackdrop: View {
     let url: URL?
+    @State private var far: NSImage?        // tiny copy of the cover: scaled up it is already a smooth blur
+    @State private var near: NSImage?       // a little sharper copy for the glass panes
     private struct Slab { let x: Double, y: Double, w: Double, h: Double, speed: Double, phase: Double, tilt: Double }
     private let slabs: [Slab] = [
         Slab(x: 0.22, y: 0.30, w: 0.46, h: 0.36, speed: 0.050, phase: 0.0, tilt: -9),
@@ -189,27 +197,25 @@ struct GlassBackdrop: View {
                 let t = tl.date.timeIntervalSinceReferenceDate
                 ZStack {
                     Color.black
-                    cover(g.size).blur(radius: 40).saturation(1.5).opacity(0.9)
+                    cover(far, g.size).saturation(1.5).opacity(0.9)
                     ForEach(0..<slabs.count, id: \.self) { i in
                         let s = slabs[i]
                         let w = g.size.width * s.w, h = g.size.height * s.h
                         let dx = sin(t * s.speed + s.phase) * g.size.width * 0.05
                         let dy = cos(t * s.speed * 0.8 + s.phase) * g.size.height * 0.05
+                        let shape = RoundedRectangle(cornerRadius: min(w, h) * 0.2, style: .continuous)
                         ZStack {
-                            cover(g.size).blur(radius: 14).saturation(1.35).brightness(0.14)
-                                .offset(x: -dx * 3, y: -dy * 3)                  // the cover slides behind the pane: that is the "bend"
-                            RoundedRectangle(cornerRadius: min(w, h) * 0.2, style: .continuous).fill(Color.white.opacity(0.07))
+                            cover(near, g.size).offset(x: -dx * 3, y: -dy * 3)        // the cover slides behind the pane: the "bend"
+                            Color.white.opacity(0.10)
                         }
                         .frame(width: w, height: h)
-                        .clipShape(RoundedRectangle(cornerRadius: min(w, h) * 0.2, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: min(w, h) * 0.2, style: .continuous)
-                            .strokeBorder(LinearGradient(colors: [.white.opacity(0.55), .white.opacity(0.05), .white.opacity(0.25)],
-                                                         startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.2))
-                        .shadow(color: .black.opacity(0.25), radius: 18, y: 8)
+                        .clipShape(shape)
+                        .overlay(shape.strokeBorder(LinearGradient(colors: [.white.opacity(0.55), .white.opacity(0.05), .white.opacity(0.25)],
+                                                                   startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.2))
                         .rotationEffect(.degrees(s.tilt + sin(t * s.speed * 1.3 + s.phase) * 3))
                         .position(x: g.size.width * s.x + dx, y: g.size.height * s.y + dy)
                     }
-                    Color.black.opacity(0.30)                                    // keeps white lyrics readable on bright covers
+                    Color.black.opacity(0.30)                                          // keeps white lyrics readable on bright covers
                     RadialGradient(colors: [.clear, .black.opacity(0.5)], center: .center,
                                    startRadius: g.size.width * 0.25, endRadius: g.size.width * 0.8)
                 }
@@ -217,10 +223,30 @@ struct GlassBackdrop: View {
                 .clipped()
             }
         }
+        .task(id: url) { await load() }
     }
 
-    private func cover(_ size: CGSize) -> some View {
-        AsyncImage(url: url) { $0.resizable().scaledToFill() } placeholder: { Color.clear }
-            .frame(width: size.width * 1.2, height: size.height * 1.2)
+    @ViewBuilder private func cover(_ img: NSImage?, _ size: CGSize) -> some View {
+        if let img {
+            Image(nsImage: img).resizable().interpolation(.high).scaledToFill()
+                .frame(width: size.width * 1.2, height: size.height * 1.2)
+        } else {
+            Color.clear
+        }
+    }
+
+    private func load() async {
+        guard let url, let (data, _) = try? await URLSession.shared.data(from: url), let img = NSImage(data: data) else { return }
+        let f = Self.shrink(img, to: 20), n = Self.shrink(img, to: 72)
+        await MainActor.run { far = f; near = n }
+    }
+
+    private static func shrink(_ img: NSImage, to side: CGFloat) -> NSImage {
+        let out = NSImage(size: NSSize(width: side, height: side))
+        out.lockFocus()
+        NSGraphicsContext.current?.imageInterpolation = .high
+        img.draw(in: NSRect(x: 0, y: 0, width: side, height: side), from: .zero, operation: .copy, fraction: 1)
+        out.unlockFocus()
+        return out
     }
 }

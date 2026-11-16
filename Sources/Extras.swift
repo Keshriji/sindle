@@ -228,11 +228,10 @@ struct GlowView: View {
                     let p = (t * s.glowBPM / 60).truncatingRemainder(dividingBy: 1)
                     let live = tl.date.timeIntervalSince(audio.lastSample) < 1.5      // real audio if permission granted
                     let k = live ? audio.level : exp(-4 * p)
-                    RoundedRectangle(cornerRadius: 24)
-                        .strokeBorder(colour(t), lineWidth: s.glowThickness * (1 + 1.2 * k))
-                        .blur(radius: s.glowBlur * (1 + 0.7 * k))
-                        .opacity((0.25 + 0.6 * k) * s.glowIntensity)
-                        .mask(edgeMask)
+                    GlowEdges(color: colour(t),
+                              depth: (s.glowThickness + s.glowBlur) * (1 + 1.3 * k) * 2.2,
+                              opacity: (0.25 + 0.6 * k) * s.glowIntensity,
+                              edges: s.glowEdges)
                 }
             } else {
                 Color.clear
@@ -251,17 +250,6 @@ struct GlowView: View {
         }
     }
 
-    @ViewBuilder private var edgeMask: some View {
-        switch s.glowEdges {
-        case 1:  LinearGradient(colors: [.white, .clear], startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.3))
-        case 2:  LinearGradient(colors: [.white, .clear], startPoint: .bottom, endPoint: UnitPoint(x: 0.5, y: 0.7))
-        case 3:  LinearGradient(stops: [.init(color: .white, location: 0), .init(color: .clear, location: 0.18),
-                                        .init(color: .clear, location: 0.82), .init(color: .white, location: 1)],
-                                startPoint: .leading, endPoint: .trailing)
-        default: Color.white
-        }
-    }
-
     private func tint(_ url: URL?) async {
         guard let url, let (d, _) = try? await URLSession.shared.data(from: url),
               let img = NSImage(data: d), let cg = img.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return }
@@ -276,5 +264,36 @@ struct GlowView: View {
         let r = Double(px[0]) / 255, g = Double(px[1]) / 255, b = Double(px[2]) / 255
         let m = max(r, g, b, 1.0 / 255)                       // brighten dark covers so the glow stays visible
         await MainActor.run { albumColor = Color(red: r / m, green: g / m, blue: b / m) }
+    }
+}
+
+/// The glow: a soft fade from each chosen screen edge. Four plain gradients, so there is no blur to re-render
+/// 30 times a second (the old version blurred a full-screen stroke every frame, which made everything hitch).
+struct GlowEdges: View {
+    let color: Color
+    let depth: CGFloat
+    let opacity: Double
+    let edges: Int            // 0 all, 1 top, 2 bottom, 3 sides
+
+    private var fade: [Color] { [color.opacity(opacity), color.opacity(opacity * 0.4), color.opacity(0)] }
+
+    var body: some View {
+        ZStack {
+            if edges == 0 || edges == 1 {
+                LinearGradient(colors: fade, startPoint: .top, endPoint: .bottom)
+                    .frame(height: depth).frame(maxHeight: .infinity, alignment: .top)
+            }
+            if edges == 0 || edges == 2 {
+                LinearGradient(colors: fade, startPoint: .bottom, endPoint: .top)
+                    .frame(height: depth).frame(maxHeight: .infinity, alignment: .bottom)
+            }
+            if edges == 0 || edges == 3 {
+                LinearGradient(colors: fade, startPoint: .leading, endPoint: .trailing)
+                    .frame(width: depth).frame(maxWidth: .infinity, alignment: .leading)
+                LinearGradient(colors: fade, startPoint: .trailing, endPoint: .leading)
+                    .frame(width: depth).frame(maxWidth: .infinity, alignment: .trailing)
+            }
+        }
+        .allowsHitTesting(false)
     }
 }
