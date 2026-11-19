@@ -1,0 +1,33 @@
+==> Host: arm64, macOS 15.8.2
+swift-driver version: 1.120.5 Apple Swift version 6.1.2 (swiftlang-6.1.2.1.2 clang-1700.0.13.5)
+Target: arm64-apple-macosx15.0
+Xcode 16.4
+Build version 16F6
+==> swift build -c release
+Building for production...
+[0/4] Write sources
+[1/4] Write swift-version--79AA4F9932D1E87A.txt
+[3/5] Compiling Spindle Animations.swift
+/Users/runner/work/sindle/sindle/Sources/LockScreen.swift:171:17: error: cannot find 'GlassBackdrop' in scope
+169 | 
+170 |             if s.lyricStyle == 4 && mode == .lyrics {
+171 |                 GlassBackdrop(url: track?.artworkURL).transition(.opacity)       // Aura gets the drifting glass
+    |                 `- error: cannot find 'GlassBackdrop' in scope
+172 |             }
+173 |             if s.starsOn && mode == .lyrics {
+
+/Users/runner/work/sindle/sindle/Sources/LockScreen.swift:171:67: error: cannot infer contextual base in reference to member 'opacity'
+169 | 
+170 |             if s.lyricStyle == 4 && mode == .lyrics {
+171 |                 GlassBackdrop(url: track?.artworkURL).transition(.opacity)       // Aura gets the drifting glass
+    |                                                                   `- error: cannot infer contextual base in reference to member 'opacity'
+172 |             }
+173 |             if s.starsOn && mode == .lyrics {
+
+/Users/runner/work/sindle/sindle/Sources/LockScreen.swift:543:19: warning: immutable value 't' was never used; consider replacing with '_' or removing it
+541 | 
+542 |     private var progress: Double {
+543 |         guard let t = track, let i = idx, i < lyrics.lines.count else { return 0 }
+    |                   `- warning: immutable value 't' was never used; consider replacing with '_' or removing it
+544 |         let start = lyrics.lines[i].t
+545 |         let end = i + 1 < lyrics.lines.count ? lyrics.lines[i + 1].t : start + 4
