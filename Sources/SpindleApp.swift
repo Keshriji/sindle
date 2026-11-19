@@ -71,7 +71,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         widget = DesktopWidgetPanel(player: player)
         glow = GlowPanel(player: player, audio: audio)
         lyricsWidget = DesktopLyricsPanel(player: player, lyrics: lyrics)
-        lockLyrics = LockLyrics(player: player, lyrics: lyrics)
+        lockLyrics = LockLyrics(player: player, lyrics: lyrics, audio: audio)
         tools.clock.onRing = { [status] in status.show(Toast(icon: "alarm.fill", text: "Alarm")) }
         system.onChange = { [status] icon, level in status.showHUD(icon: icon, level: level) }
 
@@ -124,7 +124,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         set(panel, s.islandOn); edges.forEach { set($0, s.edgeSlidersOn) }
         set(widget, s.widgetOn); set(glow, s.glowOn); set(lyricsWidget, s.desktopLyricsOn)
         keeper.setActive(s.screenKeeper && player.track != nil)
-        audio.setWanted(s.glowOn || s.eqOn)      // no system-audio capture when nothing shows it
+        // no system-audio capture when nothing shows it (the Beat Glow lyrics listen too)
+        audio.setWanted(s.glowOn || s.eqOn || s.lyricStyle == 5)
     }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { openSettings(); return true }
     func openSettings() { SettingsWindow.show(preview: { [weak self] in self?.previewLock() }) }

@@ -33,7 +33,7 @@ enum SkyLight {
 /// but below the lock screen's clock and password field, so the system clock stays visible and the
 /// field keeps working. The panel is click-through; clicks are hit-tested by LockLyrics.
 final class LockLyricsPanel: NSPanel {
-    init(player: NowPlaying, lyrics: LyricsStore) {
+    init(player: NowPlaying, lyrics: LyricsStore, audio: AudioLevel) {
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
                    backing: .buffered, defer: false)
         isOpaque = false; backgroundColor = .clear; hasShadow = false
@@ -42,7 +42,7 @@ final class LockLyricsPanel: NSPanel {
         collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
         alphaValue = 0
         contentView = NSHostingView(rootView:
-            LockScreenView(player: player, lyrics: lyrics)
+            LockScreenView(player: player, lyrics: lyrics, audio: audio)
                 .environment(\.colorScheme, .dark))
     }
 
@@ -99,12 +99,14 @@ struct DesktopLyricsView: View {
 /// same layout the view uses. In the 10-second preview the panel is interactive instead, so the
 /// record, cover and controls can be tried directly.
 final class LockLyrics {
-    private let player: NowPlaying, lyrics: LyricsStore
+    private let player: NowPlaying, lyrics: LyricsStore, audio: AudioLevel
     private var panel: LockLyricsPanel?
     private var clickMonitor: Any?
     private var previewWork: DispatchWorkItem?
     private var previewing = false
-    init(player: NowPlaying, lyrics: LyricsStore) { self.player = player; self.lyrics = lyrics }
+    init(player: NowPlaying, lyrics: LyricsStore, audio: AudioLevel) {
+        self.player = player; self.lyrics = lyrics; self.audio = audio
+    }
 
     func start() {
         let c = DistributedNotificationCenter.default()
@@ -118,7 +120,7 @@ final class LockLyrics {
 
     func show(preview: Bool) {
         guard SettingsStore.shared.lockLyricsOn || preview else { return }
-        if panel == nil { panel = LockLyricsPanel(player: player, lyrics: lyrics) }
+        if panel == nil { panel = LockLyricsPanel(player: player, lyrics: lyrics, audio: audio) }
         guard let panel else { return }
         previewing = preview
         if !preview { click("Tink") }        // a click as your Mac locks, like a phone
@@ -158,7 +160,7 @@ final class LockLyrics {
         guard let panel, panel.alphaValue > 0 else { return }
         let mouse = NSEvent.mouseLocation
         guard panel.frame.contains(mouse) else { return }
-        let local = CGPoint(x: mouse.x - panel.frame.minX, y: panel.frame.maxY - mouse.y)
+        let local = CGPoint(x: mouse.x - panel.frame.minX, y: mouse.frame.maxY - mouse.y)
         let m = LockMetrics(size: panel.frame.size)
         let mode = LockMode(rawValue: SettingsStore.shared.lockStage) ?? .lyrics
         switch lockHit(local, m, mode, controls: SettingsStore.shared.lockControlsOn) {
