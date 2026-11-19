@@ -322,3 +322,78 @@ struct BeatGlowEdge: View {
         ], center: .center, angle: spin)
     }
 }
+
+/// Drifting panes of frosted glass over the blurred album cover. Each pane is a blurred, brightened copy of the
+/// cover clipped to a rounded slab with a soft white rim, so light seems to bend through it. Slow, calm, and cheap
+/// enough to run on the lock screen (15 frames a second).
+struct GlassBackdrop: View {
+    let url: URL?
+    @State private var far: NSImage?        // tiny copy of the cover: scaled up it is already a smooth blur
+    @State private var near: NSImage?       // a little sharper copy for the glass panes
+    private struct Slab { let x: Double, y: Double, w: Double, h: Double, speed: Double, phase: Double, tilt: Double }
+    private let slabs: [Slab] = [
+        Slab(x: 0.22, y: 0.30, w: 0.46, h: 0.36, speed: 0.050, phase: 0.0, tilt: -9),
+        Slab(x: 0.74, y: 0.26, w: 0.36, h: 0.46, speed: 0.040, phase: 1.7, tilt: 7),
+        Slab(x: 0.50, y: 0.72, w: 0.56, h: 0.30, speed: 0.060, phase: 3.1, tilt: -4),
+        Slab(x: 0.88, y: 0.78, w: 0.30, h: 0.34, speed: 0.045, phase: 4.6, tilt: 11)
+    ]
+
+    var body: some View {
+        GeometryReader { g in
+            TimelineView(.periodic(from: .now, by: 1.0 / 15.0)) { tl in
+                let t = tl.date.timeIntervalSinceReferenceDate
+                ZStack {
+                    Color.black
+                    cover(far, g.size).saturation(1.5).opacity(0.9)
+                    ForEach(0..<slabs.count, id: \.self) { i in
+                        let s = slabs[i]
+                        let w = g.size.width * s.w, h = g.size.height * s.h
+                        let dx = sin(t * s.speed + s.phase) * g.size.width * 0.05
+                        let dy = cos(t * s.speed * 0.8 + s.phase) * g.size.height * 0.05
+                        let shape = RoundedRectangle(cornerRadius: min(w, h) * 0.2, style: .continuous)
+                        ZStack {
+                            cover(near, g.size).offset(x: -dx * 3, y: -dy * 3)        // the cover slides behind the pane: the "bend"
+                            Color.white.opacity(0.10)
+                        }
+                        .frame(width: w, height: h)
+                        .clipShape(shape)
+                        .overlay(shape.strokeBorder(LinearGradient(colors: [.white.opacity(0.55), .white.opacity(0.05), .white.opacity(0.25)],
+                                                                   startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.2))
+                        .rotationEffect(.degrees(s.tilt + sin(t * s.speed * 1.3 + s.phase) * 3))
+                        .position(x: g.size.width * s.x + dx, y: g.size.height * s.y + dy)
+                    }
+                    Color.black.opacity(0.30)                                          // keeps white lyrics readable on bright covers
+                    RadialGradient(colors: [.clear, .black.opacity(0.5)], center: .center,
+                                   startRadius: g.size.width * 0.25, endRadius: g.size.width * 0.8)
+                }
+                .frame(width: g.size.width, height: g.size.height)
+                .clipped()
+            }
+        }
+        .task(id: url) { await load() }
+    }
+
+    @ViewBuilder private func cover(_ img: NSImage?, _ size: CGSize) -> some View {
+        if let img {
+            Image(nsImage: img).resizable().interpolation(.high).scaledToFill()
+                .frame(width: size.width * 1.2, height: size.height * 1.2)
+        } else {
+            Color.clear
+        }
+    }
+
+    private func load() async {
+        guard let url, let (data, _) = try? await URLSession.shared.data(from: url), let img = NSImage(data: data) else { return }
+        let f = Self.shrink(img, to: 20), n = Self.shrink(img, to: 72)
+        await MainActor.run { far = f; near = n }
+    }
+
+    private static func shrink(_ img: NSImage, to side: CGFloat) -> NSImage {
+        let out = NSImage(size: NSSize(width: side, height: side))
+        out.lockFocus()
+        NSGraphicsContext.current?.imageInterpolation = .high
+        img.draw(in: NSRect(x: 0, y: 0, width: side, height: side), from: .zero, operation: .copy, fraction: 1)
+        out.unlockFocus()
+        return out
+    }
+}
