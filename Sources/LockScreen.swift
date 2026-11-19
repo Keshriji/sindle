@@ -44,6 +44,10 @@ struct LockMetrics {
 
     func lyrics(_ m: LockMode) -> CGRect { rect(51.4, 19.6, 27.0, 34.0) }
 
+    /// The constellation styles need a canvas, not a column: the room between the cover and the
+    /// card, wide enough for a star map to form.
+    func constellation(_ m: LockMode) -> CGRect { rect(41.5, 16.0, 51.5, 37.5) }
+
     func coverRadius(_ m: LockMode) -> CGFloat {
         switch m {
         case .record: return 0.4 * u
@@ -100,13 +104,15 @@ func lockHit(_ p: CGPoint, _ m: LockMetrics, _ mode: LockMode, controls: Bool) -
 struct LockScreenView: View {
     @ObservedObject var player: NowPlaying
     @ObservedObject var lyrics: LyricsStore
+    @ObservedObject var audio: AudioLevel
     @ObservedObject var s = SettingsStore.shared
     @State private var tint = Color.white
     @State private var burst = 0
 
-    init(player: NowPlaying, lyrics: LyricsStore) {
+    init(player: NowPlaying, lyrics: LyricsStore, audio: AudioLevel) {
         self.player = player
         self.lyrics = lyrics
+        self.audio = audio
     }
 
     private var mode: LockMode { LockMode(rawValue: s.lockStage) ?? .lyrics }
@@ -123,6 +129,10 @@ struct LockScreenView: View {
                 lyricsColumn(m, mode).zIndex(1)
                 card(m, mode).zIndex(10)      // always above the lyrics, whatever the lyric style
                 record(m, mode).zIndex(11)    // and the small record peeks through the card's slot
+                // Beat Glow: a light that slides around the screen edge on the song's beat
+                if mode == .lyrics && s.lyricStyle == 5 {
+                    BeatGlowEdge(audio: audio, playing: track?.isPlaying ?? false, tint: tint).zIndex(20)
+                }
             }
             .frame(width: geo.size.width, height: geo.size.height)
         }
@@ -136,18 +146,26 @@ struct LockScreenView: View {
     @ViewBuilder
     private func backdrop(_ m: LockMetrics, _ mode: LockMode) -> some View {
         ZStack {
-            AsyncImage(url: track?.artworkURL) { image in
-                image.resizable().scaledToFill()
-            } placeholder: {
-                Color.clear
+            if s.lyricStyle == 5 {
+                // Beat Glow: the cover fills the screen as a slow, stretched blur that never sits still
+                StretchBackdrop(url: track?.artworkURL)
+                    .frame(width: m.size.width, height: m.size.height)
+                    .opacity(mode == .record ? 0 : 1)
+                    .animation(.easeInOut(duration: 1.6), value: mode)
+            } else {
+                AsyncImage(url: track?.artworkURL) { image in
+                    image.resizable().scaledToFill()
+                } placeholder: {
+                    Color.clear
+                }
+                .frame(width: m.size.width * 1.12, height: m.size.height * 1.12)
+                .blur(radius: 3.2 * m.u)
+                .saturation(1.25)                        // Needle's backdrop: blur 3.2cqw, saturate 1.25
+                .brightness(-0.38)
+                .position(x: m.size.width / 2, y: m.size.height / 2)
+                .opacity(mode == .record ? 0 : 1)
+                .animation(.easeInOut(duration: 1.6), value: mode)
             }
-            .frame(width: m.size.width * 1.12, height: m.size.height * 1.12)
-            .blur(radius: 3.2 * m.u)
-            .saturation(1.25)                            // Needle's backdrop: blur 3.2cqw, saturate 1.25
-            .brightness(-0.38)
-            .position(x: m.size.width / 2, y: m.size.height / 2)
-            .opacity(mode == .record ? 0 : 1)
-            .animation(.easeInOut(duration: 1.6), value: mode)
 
             if s.lyricStyle == 4 && mode == .lyrics {
                 GlassBackdrop(url: track?.artworkURL).transition(.opacity)       // Aura gets the drifting glass
@@ -209,7 +227,8 @@ struct LockScreenView: View {
     }
 
     private func lyricsColumn(_ m: LockMetrics, _ mode: LockMode) -> some View {
-        let r = m.lyrics(mode)
+        // the constellation styles draw a shape, so they get the wide canvas beside the cover
+        let r = s.lyricStyle >= 4 ? m.constellation(mode) : m.lyrics(mode)
         return LockScreenLyrics(lyrics: lyrics, track: track, size: r.size, u: m.u,
                                 style: s.lyricStyle, tint: tint, colorMode: s.lyricColorMode,
                                 custom: Color(red: s.lyricR, green: s.lyricG, blue: s.lyricB),
@@ -495,6 +514,7 @@ struct LockScreenLyrics: View {
                 case 2: lens
                 case 3: terminal
                 case 4: aura
+                case 5: beatGlow
                 default: stars
                 }
             }
@@ -606,15 +626,23 @@ struct LockScreenLyrics: View {
         }
     }
 
-    /// Aura turns the line into a constellation: every word is a glowing star, the stars light up as
-    /// the line is sung, and a soft thread joins them — the Needle Aura look, animated per word.
+    /// Aura turns the line into a star map: every word is a star, and a soft thread joins them.
     private var aura: some View {
+        constellation(soft: true)
+    }
+
+    /// Beat Glow keeps the sharp star map, and the panel adds the edge light.
+    private var beatGlow: some View {
+        constellation(soft: false)
+    }
+
+    private func constellation(soft: Bool) -> some View {
         let words = current.split(separator: " ").map(String.init)
         return ConstellationLyrics(words: words.isEmpty ? ["♪"] : words,
                                    progress: progress,
                                    seed: idx ?? -1,
-                                   soft: true,
-                                   scale: max(0.5, min(1.0, 0.062 * u)),
+                                   soft: soft,
+                                   scale: max(0.6, min(1.25, 0.085 * u)),
                                    tint: currentColour)
             .padding(0.4 * u)
             .id(idx ?? -1)
