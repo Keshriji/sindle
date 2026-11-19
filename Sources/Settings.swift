@@ -241,7 +241,7 @@ struct SettingsView: View {
         case .lyrics:
             Section("Style") {
                 Picker("Lyric style", selection: $s.lyricStyle) {
-                    Text("Stars").tag(0); Text("Big Words").tag(1); Text("Lens").tag(2); Text("Terminal").tag(3); Text("Aura").tag(4)
+                    Text("Stars").tag(0); Text("Big Words").tag(1); Text("Lens").tag(2); Text("Terminal").tag(3); Text("Aura").tag(4); Text("Beat Glow").tag(5)
                 }
                 slider("Timing (seconds early)", $s.lyricOffset, -2...2)
                 Toggle("Twinkling star background", isOn: $s.starsOn)
