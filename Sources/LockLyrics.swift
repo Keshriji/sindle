@@ -160,7 +160,7 @@ final class LockLyrics {
         guard let panel, panel.alphaValue > 0 else { return }
         let mouse = NSEvent.mouseLocation
         guard panel.frame.contains(mouse) else { return }
-        let local = CGPoint(x: mouse.x - panel.frame.minX, y: mouse.frame.maxY - mouse.y)
+        let local = CGPoint(x: mouse.x - panel.frame.minX, y: panel.frame.maxY - mouse.y)
         let m = LockMetrics(size: panel.frame.size)
         let mode = LockMode(rawValue: SettingsStore.shared.lockStage) ?? .lyrics
         switch lockHit(local, m, mode, controls: SettingsStore.shared.lockControlsOn) {
