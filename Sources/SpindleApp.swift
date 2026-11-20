@@ -124,8 +124,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         set(panel, s.islandOn); edges.forEach { set($0, s.edgeSlidersOn) }
         set(widget, s.widgetOn); set(glow, s.glowOn); set(lyricsWidget, s.desktopLyricsOn)
         keeper.setActive(s.screenKeeper && player.track != nil)
-        // no system-audio capture when nothing shows it (the Beat Glow lyrics listen too)
-        audio.setWanted(s.glowOn || s.eqOn || s.lyricStyle == 5)
+        audio.setWanted(s.glowOn || s.eqOn)      // no system-audio capture when nothing shows it
     }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { openSettings(); return true }
     func openSettings() { SettingsWindow.show(preview: { [weak self] in self?.previewLock() }) }

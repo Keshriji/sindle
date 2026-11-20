@@ -99,14 +99,13 @@ struct DesktopLyricsView: View {
 /// same layout the view uses. In the 10-second preview the panel is interactive instead, so the
 /// record, cover and controls can be tried directly.
 final class LockLyrics {
-    private let player: NowPlaying, lyrics: LyricsStore, audio: AudioLevel
+    private let player: NowPlaying, lyrics: LyricsStore
     private var panel: LockLyricsPanel?
     private var clickMonitor: Any?
     private var previewWork: DispatchWorkItem?
     private var previewing = false
-    init(player: NowPlaying, lyrics: LyricsStore, audio: AudioLevel) {
-        self.player = player; self.lyrics = lyrics; self.audio = audio
-    }
+    private let audio: AudioLevel
+    init(player: NowPlaying, lyrics: LyricsStore, audio: AudioLevel) { self.player = player; self.lyrics = lyrics; self.audio = audio }
 
     func start() {
         let c = DistributedNotificationCenter.default()

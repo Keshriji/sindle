@@ -229,7 +229,7 @@ struct GlowView: View {
                     let live = tl.date.timeIntervalSince(audio.lastSample) < 1.5      // real audio if permission granted
                     let k = live ? audio.level : exp(-4 * p)
                     GlowEdges(color: colour(t),
-                              depth: (s.glowThickness + s.glowBlur) * (1 + 1.3 * k) * 2.2,
+                              depth: CGFloat((s.glowThickness + s.glowBlur) * (1.0 + 1.3 * k) * 2.2),
                               opacity: (0.25 + 0.6 * k) * s.glowIntensity,
                               edges: s.glowEdges)
                 }

@@ -167,6 +167,14 @@ final class AudioLevel: NSObject, ObservableObject, SCStreamOutput, SCStreamDele
 
 /// Little dancing bars. Real sound if Spindle can hear it, a gentle demo pattern otherwise.
 struct EqualizerBars: View {
+    /// Height (0...1) of bar `i`: real sound when it can be heard, a gentle demo wave while playing, flat when paused.
+    private func barLevel(_ i: Int, _ t: Double, _ live: Bool) -> Double {
+        if live { return audio.bands[min(i * 8 / max(count, 1), 7)] }
+        if !playing { return 0.1 }
+        let phase: Double = t * (3.0 + Double(i)) + Double(i)
+        return 0.35 + 0.3 * sin(phase)
+    }
+
     @ObservedObject var audio: AudioLevel
     var playing: Bool
     var count: Int
@@ -179,8 +187,7 @@ struct EqualizerBars: View {
             let live = tl.date.timeIntervalSince(audio.lastSample) < 1.5
             HStack(alignment: .center, spacing: 2) {
                 ForEach(0..<count, id: \.self) { i in
-                    let v: Double = live ? audio.bands[min(i * 8 / max(count, 1), 7)]
-                                         : (playing ? 0.35 + 0.3 * sin(t * (3 + Double(i)) + Double(i)) : 0.1)
+                    let v = barLevel(i, t, live)
                     Capsule()
                         .fill(rainbow ? Color(hue: Double(i) / Double(max(count, 1)), saturation: 0.8, brightness: 1) : Color.white)
                         .frame(width: 3, height: 4 + 14 * max(0.05, min(1, v)))

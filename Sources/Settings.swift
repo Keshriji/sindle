@@ -53,6 +53,7 @@ final class SettingsStore: ObservableObject {
     @Published var lockRecordSize: Double { didSet { put("lockRecordSize", lockRecordSize) } }
     @Published var lockTitleOn: Bool    { didSet { put("lockTitleOn", lockTitleOn) } }
     @Published var lockNextLineOn: Bool { didSet { put("lockNextLineOn", lockNextLineOn) } }
+    @Published var lockVerticalTitle: Bool { didSet { put("lockVerticalTitle", lockVerticalTitle) } }
     @Published var lockControlsOn: Bool { didSet { put("lockControlsOn", lockControlsOn) } }
     @Published var lockSoundsOn: Bool   { didSet { put("lockSoundsOn", lockSoundsOn) } }
     @Published var lockGlass: Int       { didSet { put("lockGlass", lockGlass) } }           // 0 liquid, 1 clear, 2 off
@@ -108,7 +109,7 @@ final class SettingsStore: ObservableObject {
         eqSensitivity = Self.num("eqSensitivity", 1); glassMaterial = Self.int("glassMaterial", 0)
         glassTint = Self.num("glassTint", 0.3); keepOpen = Self.flag("keepOpen", false)
         lockStage = Self.int("lockStage", 2); lockDim = Self.num("lockDim", 0.6); lockRecordSize = Self.num("lockRecordSize", 160)
-        lockTitleOn = Self.flag("lockTitleOn", true); lockNextLineOn = Self.flag("lockNextLineOn", true)
+        lockTitleOn = Self.flag("lockTitleOn", true); lockNextLineOn = Self.flag("lockNextLineOn", true); lockVerticalTitle = Self.flag("lockVerticalTitle", true)
         lockControlsOn = Self.flag("lockControlsOn", true); lockSoundsOn = Self.flag("lockSoundsOn", true)
         lockGlass = Self.int("lockGlass", 0); lensBend = Self.num("lensBend", 0.5)
         lyricBackground = Self.int("lyricBackground", 1)
@@ -241,7 +242,7 @@ struct SettingsView: View {
         case .lyrics:
             Section("Style") {
                 Picker("Lyric style", selection: $s.lyricStyle) {
-                    Text("Stars").tag(0); Text("Big Words").tag(1); Text("Lens").tag(2); Text("Terminal").tag(3); Text("Aura").tag(4); Text("Beat Glow").tag(5)
+                    Text("Stars").tag(0); Text("Big Words").tag(1); Text("Lens").tag(2); Text("Terminal").tag(3); Text("Aura").tag(4)
                 }
                 slider("Timing (seconds early)", $s.lyricOffset, -2...2)
                 Toggle("Twinkling star background", isOn: $s.starsOn)
@@ -280,6 +281,7 @@ struct SettingsView: View {
                 slider("Screen darkening", $s.lockDim, 0...1)
                 Toggle("Show song title and artist", isOn: $s.lockTitleOn)
                 Toggle("Show the next line", isOn: $s.lockNextLineOn)
+                Toggle("Song title down the left edge (Stars)", isOn: $s.lockVerticalTitle)
             }
             Section("Glass") {
                 Picker("Card", selection: $s.lockGlass) {
