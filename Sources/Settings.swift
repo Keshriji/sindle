@@ -54,6 +54,7 @@ final class SettingsStore: ObservableObject {
     @Published var lockTitleOn: Bool    { didSet { put("lockTitleOn", lockTitleOn) } }
     @Published var lockNextLineOn: Bool { didSet { put("lockNextLineOn", lockNextLineOn) } }
     @Published var lockVerticalTitle: Bool { didSet { put("lockVerticalTitle", lockVerticalTitle) } }
+    @Published var constellationBehind: Bool { didSet { put("constellationBehind", constellationBehind) } }
     @Published var lockControlsOn: Bool { didSet { put("lockControlsOn", lockControlsOn) } }
     @Published var lockSoundsOn: Bool   { didSet { put("lockSoundsOn", lockSoundsOn) } }
     @Published var lockGlass: Int       { didSet { put("lockGlass", lockGlass) } }           // 0 liquid, 1 clear, 2 off
@@ -109,12 +110,12 @@ final class SettingsStore: ObservableObject {
         eqSensitivity = Self.num("eqSensitivity", 1); glassMaterial = Self.int("glassMaterial", 0)
         glassTint = Self.num("glassTint", 0.3); keepOpen = Self.flag("keepOpen", false)
         lockStage = Self.int("lockStage", 2); lockDim = Self.num("lockDim", 0.6); lockRecordSize = Self.num("lockRecordSize", 160)
-        lockTitleOn = Self.flag("lockTitleOn", true); lockNextLineOn = Self.flag("lockNextLineOn", true); lockVerticalTitle = Self.flag("lockVerticalTitle", true)
+        lockTitleOn = Self.flag("lockTitleOn", true); lockNextLineOn = Self.flag("lockNextLineOn", true); lockVerticalTitle = Self.flag("lockVerticalTitle", true); constellationBehind = Self.flag("constellationBehind", false)
         lockControlsOn = Self.flag("lockControlsOn", true); lockSoundsOn = Self.flag("lockSoundsOn", true)
         lockGlass = Self.int("lockGlass", 0); lensBend = Self.num("lensBend", 0.5)
         lyricBackground = Self.int("lyricBackground", 1)
         lyricOffset = Self.num("lyricOffset", 0.35); lyricScatter = Self.num("lyricScatter", 0.3)
-        lyricColorMode = Self.int("lyricColorMode", 0)
+        lyricColorMode = Self.int("lyricColorMode", 1)
         lyricR = Self.num("lyricR", 1); lyricG = Self.num("lyricG", 1); lyricB = Self.num("lyricB", 1)
         faceLockOn = Self.flag("faceLockOn", false); fahrenheit = Self.flag("fahrenheit", false)
         showMenuIcon = Self.flag("showMenuIcon", true)
@@ -161,6 +162,16 @@ struct SettingsView: View {
 
     private func slider(_ title: String, _ v: Binding<Double>, _ r: ClosedRange<Double>, _ f: String = "%.2f") -> some View {
         HStack { Text(title); Slider(value: v, in: r); Text(String(format: f, v.wrappedValue)).monospacedDigit().frame(width: 52, alignment: .trailing) }
+    }
+
+    private func styleNote(_ style: Int) -> String {
+        switch style {
+        case 0:  return "Constellation: every word of the song becomes a point; thin lines join them into a growing network, with a ring on the word being sung. Fills the lock screen."
+        case 1:  return "Big Words: the word being sung is huge, the one before it small above, the next one small and italic below, with a little picture beside words like \"lights\" or \"down\". Fills the lock screen."
+        case 2:  return "Lens: the current line is sharp, the lines around it blur away."
+        case 3:  return "Terminal: the line is typed out in green with a blinking cursor."
+        default: return "Aura: one huge word at a time on a turning 3D drum, over a dark heart ringed with the cover's colours. Fills the lock screen."
+        }
     }
 
     private func permRow(_ title: String, _ granted: Bool?, _ pane: String) -> some View {
@@ -242,8 +253,10 @@ struct SettingsView: View {
         case .lyrics:
             Section("Style") {
                 Picker("Lyric style", selection: $s.lyricStyle) {
-                    Text("Stars").tag(0); Text("Big Words").tag(1); Text("Lens").tag(2); Text("Terminal").tag(3); Text("Aura").tag(4)
+                    Text("Constellation").tag(0); Text("Big Words").tag(1); Text("Lens").tag(2); Text("Terminal").tag(3); Text("Aura").tag(4)
                 }
+                Text(styleNote(s.lyricStyle)).font(.caption).foregroundStyle(.secondary)
+                Toggle("Constellation network behind the words (Aura and Big Words)", isOn: $s.constellationBehind)
                 slider("Timing (seconds early)", $s.lyricOffset, -2...2)
                 Toggle("Twinkling star background", isOn: $s.starsOn)
             }
@@ -254,7 +267,7 @@ struct SettingsView: View {
                 Text("The lock screen always uses the blurred cover; this choice applies to the desktop lyrics card.").font(.caption).foregroundStyle(.secondary)
             }
             Section("Colour") {
-                Picker("Words take their colour from", selection: $s.lyricColorMode) { Text("White").tag(0); Text("Album cover").tag(1); Text("Custom").tag(2) }
+                Picker("Words take their colour from", selection: $s.lyricColorMode) { Text("White").tag(0); Text("Album cover (bright)").tag(1); Text("Custom").tag(2); Text("Rainbow").tag(3) }
                 if s.lyricColorMode == 2 {
                     ColorPicker("Custom colour", selection: Binding<Color>(
                         get: { Color(red: s.lyricR, green: s.lyricG, blue: s.lyricB) },

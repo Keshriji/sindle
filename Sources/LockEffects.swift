@@ -98,6 +98,16 @@ enum AuraTimeline {
     }
 }
 
+/// The colour of word number `index`, from the Settings choice: 0 white, 1 cover colour (bright), 2 custom, 3 rainbow.
+func lyricColour(_ mode: Int, tint: Color, custom: Color, index: Int) -> Color {
+    switch mode {
+    case 1:  return vividColour(tint)
+    case 2:  return custom
+    case 3:  return Color(hue: Double(index % 12) / 12.0, saturation: 0.65, brightness: 1.0)
+    default: return Color(white: 0.95)
+    }
+}
+
 /// Where the song is right now, in seconds: the last reading, plus the time since, plus the timing offset.
 func lockLivePos(_ t: Track?, _ now: Date = Date()) -> Double {
     guard let t else { return 0 }
@@ -184,7 +194,7 @@ struct DrumWord: ViewModifier, Animatable {
 struct AuraDrum: View {
     @ObservedObject var lyrics: LyricsStore
     let track: Track?
-    let colour: Color
+    let colourFor: (Int) -> Color
     let size: CGSize
     @State private var chunks: [AuraChunk] = []
     @State private var cursor: Double = 0
@@ -229,7 +239,7 @@ struct AuraDrum: View {
         return Text(c.text)
             .font(.system(size: fs, weight: .black))
             .tracking(-fs * 0.045)
-            .foregroundStyle(colour)
+            .foregroundStyle(colourFor(c.id))
             .lineLimit(1)
             .minimumScaleFactor(0.3)
             .frame(width: size.width * 0.9)
@@ -240,27 +250,46 @@ struct AuraDrum: View {
 
 // MARK: - Stars: smoky backdrop
 
-/// The cover turned into slow black-and-white smoke, a pool of light at the top and drifting specks.
+/// Remembers the last few zoom levels of the background, so older copies can be drawn trailing behind the newest.
+final class BreathTrail {
+    private var smooth: Double = 0
+    var scales: [Double] = Array(repeating: 1.05, count: 7)
+
+    /// Feeds in the music's loudness (fast rise, slow fall) and returns the smoothed value.
+    func step(level: Double, slow: Double) -> Double {
+        smooth = level > smooth ? level : smooth * 0.9 + level * 0.1
+        let target: Double = 1.05 + 0.07 * smooth + 0.015 * slow
+        scales.removeLast()
+        scales.insert(target, at: 0)
+        return smooth
+    }
+}
+
+/// The cover turned into slow black-and-white smoke that breathes with the music: it swells on every beat and
+/// settles back, with older zoom levels trailing behind the newest like a motion blur. A pool of light at the top
+/// brightens with the sound, and specks drift over everything.
 struct SmokyBackdrop: View {
     let url: URL?
+    let audio: AudioLevel
     @StateObject private var soft = SoftCover()
+    @State private var trail = BreathTrail()
+    private let ghostOpacity: [Double] = [0.8, 0.32, 0.2, 0.12]
 
     var body: some View {
         GeometryReader { g in
-            TimelineView(.periodic(from: .now, by: 1.0 / 15.0)) { tl in
+            TimelineView(.periodic(from: .now, by: 1.0 / 30.0)) { tl in
                 let t: Double = tl.date.timeIntervalSinceReferenceDate
+                let live: Bool = tl.date.timeIntervalSince(audio.lastSample) < 1.5
+                let bass: Double = live ? max(audio.level, audio.bands[0]) : 0.35 + 0.35 * max(0.0, sin(t * 1.6))
+                let level: Double = trail.step(level: bass, slow: sin(t * 0.9))
                 let w: CGFloat = g.size.width
                 let h: CGFloat = g.size.height
-                let breathe: CGFloat = 1.0 + 0.03 * CGFloat(sin(t * 0.13))
                 ZStack {
                     Color.black
                     if let near = soft.near {
-                        Image(nsImage: near).resizable().interpolation(.high).scaledToFill()
-                            .frame(width: w * 1.2, height: h * 1.2)
-                            .saturation(0).contrast(1.35).brightness(-0.12)
-                            .scaleEffect(breathe)
-                            .offset(x: CGFloat(sin(t * 0.09)) * w * 0.02, y: CGFloat(cos(t * 0.07)) * h * 0.02)
-                            .opacity(0.8)
+                        ForEach([3, 2, 1, 0], id: \.self) { i in
+                            cover(near, w, h, scale: trail.scales[i * 2], opacity: ghostOpacity[i], t: t, level: level)
+                        }
                         Image(nsImage: near).resizable().interpolation(.high).scaledToFill()
                             .frame(width: w * 1.5, height: h * 1.5)
                             .saturation(0).contrast(1.6)
@@ -268,7 +297,7 @@ struct SmokyBackdrop: View {
                             .blendMode(.plusLighter)
                             .opacity(0.16)
                     }
-                    RadialGradient(colors: [.white.opacity(0.22), .clear], center: UnitPoint(x: 0.5, y: 0.1),
+                    RadialGradient(colors: [.white.opacity(0.16 + 0.22 * level), .clear], center: UnitPoint(x: 0.5, y: 0.1),
                                    startRadius: 0, endRadius: w * 0.35)
                     RadialGradient(colors: [.clear, .black.opacity(0.75)], center: .center,
                                    startRadius: w * 0.25, endRadius: w * 0.75)
@@ -279,6 +308,18 @@ struct SmokyBackdrop: View {
             }
         }
         .task(id: url) { await soft.load(url) }
+    }
+
+    private func cover(_ img: NSImage, _ w: CGFloat, _ h: CGFloat, scale: Double, opacity: Double, t: Double, level: Double) -> some View {
+        let sway: CGFloat = CGFloat(sin(t * 0.09)) * w * 0.02
+        let bob: CGFloat = CGFloat(cos(t * 0.07)) * h * 0.02
+        return Image(nsImage: img).resizable().interpolation(.high).scaledToFill()
+            .frame(width: w * 1.2, height: h * 1.2)
+            .saturation(0).contrast(1.35).brightness(-0.18 + 0.14 * level)
+            .scaleEffect(CGFloat(scale))
+            .rotationEffect(.degrees(sin(t * 0.05) * 1.5))
+            .offset(x: sway, y: bob)
+            .opacity(opacity)
     }
 }
 
@@ -318,6 +359,8 @@ struct ConstellationGraph: View {
     @ObservedObject var lyrics: LyricsStore
     let track: Track?
     let audio: AudioLevel
+    let colourFor: (Int) -> Color
+    var dim = false                  // true when drawn quietly behind Aura or Big Words
     @State private var words: [AuraChunk] = []
 
     var body: some View {
@@ -375,7 +418,7 @@ struct ConstellationGraph: View {
                 var p = Path()
                 p.move(to: from)
                 p.addLine(to: end)
-                ctx.stroke(p, with: .color(.white.opacity(0.8)), lineWidth: 0.9)
+                ctx.stroke(p, with: .color(colourFor(k).opacity(dim ? 0.3 : 0.8)), lineWidth: 0.9)
             }
         }
 
@@ -387,16 +430,17 @@ struct ConstellationGraph: View {
             let fade: Double = min(1, max(0, (pos - words[k].start) / 0.2))
             let pt: CGPoint = pts[n]
             ctx.fill(Path(ellipseIn: CGRect(x: pt.x - 1.6, y: pt.y - 1.6, width: 3.2, height: 3.2)),
-                     with: .color(.white.opacity(0.9 * fade)))
-            let label = Text(words[k].text).font(.system(size: small, weight: .semibold)).foregroundColor(.white.opacity(0.85 * fade))
+                     with: .color(colourFor(k).opacity(0.9 * fade)))
+            let label = Text(words[k].text).font(.system(size: small, weight: .semibold)).foregroundColor(colourFor(k).opacity(0.85 * fade))
             ctx.draw(label, at: CGPoint(x: pt.x + 4, y: pt.y + small * 0.9), anchor: .leading)
         }
 
         // the word being sung: a ring, a sparkle and a big label
         let c: CGPoint = pts[pts.count - 1]
+        let ringColour: Color = colourFor(cur)
         let radius: CGFloat = size.width * 0.012 * CGFloat(1.0 + 0.3 * level)
         ctx.stroke(Path(ellipseIn: CGRect(x: c.x - radius, y: c.y - radius, width: radius * 2, height: radius * 2)),
-                   with: .color(.white), lineWidth: 1.4)
+                   with: .color(ringColour), lineWidth: 1.4)
         for q in 0..<4 {
             let a: Double = Double(q) * Double.pi / 2
             let dx: CGFloat = CGFloat(cos(a))
@@ -404,7 +448,7 @@ struct ConstellationGraph: View {
             var tick = Path()
             tick.move(to: CGPoint(x: c.x + dx * radius * 1.15, y: c.y + dy * radius * 1.15))
             tick.addLine(to: CGPoint(x: c.x + dx * radius * 1.6, y: c.y + dy * radius * 1.6))
-            ctx.stroke(tick, with: .color(.white.opacity(0.9)), lineWidth: 1.2)
+            ctx.stroke(tick, with: .color(ringColour.opacity(0.9)), lineWidth: 1.2)
         }
         var star = Path()
         let tip: CGFloat = radius * 0.62
@@ -416,12 +460,14 @@ struct ConstellationGraph: View {
             if q == 0 { star.move(to: p) } else { star.addLine(to: p) }
         }
         star.closeSubpath()
-        ctx.fill(star, with: .color(.white))
+        ctx.fill(star, with: .color(ringColour))
 
-        let big = Text(words[cur].text).font(.system(size: size.width * 0.036, weight: .black)).foregroundColor(.white)
-        ctx.drawLayer { layer in
-            layer.addFilter(.shadow(color: .black.opacity(0.6), radius: 4))
-            layer.draw(big, at: CGPoint(x: c.x + radius * 1.7, y: c.y + radius * 1.4), anchor: .topLeading)
+        let big = Text(words[cur].text).font(.system(size: size.width * 0.036, weight: .black)).foregroundColor(ringColour)
+        if !dim {
+            ctx.drawLayer { layer in
+                layer.addFilter(.shadow(color: .black.opacity(0.6), radius: 4))
+                layer.draw(big, at: CGPoint(x: c.x + radius * 1.7, y: c.y + radius * 1.4), anchor: .topLeading)
+            }
         }
     }
 }
@@ -653,7 +699,7 @@ struct BigWordView: View, Animatable {
 struct BigWordStage: View {
     @ObservedObject var lyrics: LyricsStore
     let track: Track?
-    let colour: Color
+    let colourFor: (Int) -> Color
     let size: CGSize
     @State private var chunks: [AuraChunk] = []
     @State private var cursor: Double = 0
@@ -668,7 +714,7 @@ struct BigWordStage: View {
                         .foregroundStyle(.white.opacity(0.7))
                 } else {
                     ForEach(window(cur)) { c in
-                        BigWordView(cursor: cursor, index: Double(c.id), text: c.text, colour: colour, size: size)
+                        BigWordView(cursor: cursor, index: Double(c.id), text: c.text, colour: colourFor(c.id), size: size)
                     }
                 }
             }

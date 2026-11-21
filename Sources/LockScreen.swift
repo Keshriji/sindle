@@ -145,28 +145,28 @@ struct LockScreenView: View {
         mode == .lyrics && (s.lyricStyle == 0 || s.lyricStyle == 1 || s.lyricStyle == 4)
     }
 
-    /// Big Words wears the cover's colour, pushed bright, unless a custom colour is chosen.
-    private var bigColour: Color {
-        s.lyricColorMode == 2 ? Color(red: s.lyricR, green: s.lyricG, blue: s.lyricB) : vividColour(tint)
-    }
-
-    private var auraColour: Color {
-        switch s.lyricColorMode {
-        case 1:  return tint
-        case 2:  return Color(red: s.lyricR, green: s.lyricG, blue: s.lyricB)
-        default: return Color(white: 0.94)
-        }
+    /// Colour of word number `i`, from the Settings choice (white, cover colour, custom or rainbow).
+    private func wordColour(_ i: Int) -> Color {
+        lyricColour(s.lyricColorMode, tint: tint, custom: Color(red: s.lyricR, green: s.lyricG, blue: s.lyricB), index: i)
     }
 
     @ViewBuilder
     private func stage(_ m: LockMetrics) -> some View {
-        if s.lyricStyle == 4 {
-            AuraDrum(lyrics: lyrics, track: track, colour: auraColour, size: m.size)
-        } else if s.lyricStyle == 1 {
-            BigWordStage(lyrics: lyrics, track: track, colour: bigColour, size: m.size)
+        if s.lyricStyle == 4 || s.lyricStyle == 1 {
+            ZStack {
+                if s.constellationBehind {
+                    ConstellationGraph(lyrics: lyrics, track: track, audio: audio, colourFor: wordColour, dim: true)
+                }
+                if s.lyricStyle == 4 {
+                    AuraDrum(lyrics: lyrics, track: track, colourFor: wordColour, size: m.size)
+                } else {
+                    BigWordStage(lyrics: lyrics, track: track, colourFor: wordColour, size: m.size)
+                }
+            }
+            .frame(width: m.size.width, height: m.size.height)
         } else {
             ZStack(alignment: .topLeading) {
-                ConstellationGraph(lyrics: lyrics, track: track, audio: audio)
+                ConstellationGraph(lyrics: lyrics, track: track, audio: audio, colourFor: wordColour)
                 if s.lockVerticalTitle, let title = track?.title {
                     VerticalTitle(text: title, colour: tint, width: m.size.width)
                         .offset(x: m.size.width * 0.018, y: m.size.height * 0.16)
@@ -185,7 +185,7 @@ struct LockScreenView: View {
                 } else if s.lyricStyle == 1 {
                     BigWordsBackdrop(url: track?.artworkURL)
                 } else {
-                    SmokyBackdrop(url: track?.artworkURL)
+                    SmokyBackdrop(url: track?.artworkURL, audio: audio)
                 }
             }
             .frame(width: m.size.width, height: m.size.height)
@@ -564,11 +564,7 @@ struct LockScreenLyrics: View {
     }
 
     private var currentColour: Color {
-        switch colorMode {
-        case 1: return tint
-        case 2: return custom
-        default: return .white
-        }
+        lyricColour(colorMode, tint: tint, custom: custom, index: idx ?? 0)
     }
 
     private func colour(_ i: Int) -> Color {
