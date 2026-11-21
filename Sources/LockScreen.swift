@@ -142,7 +142,12 @@ struct LockScreenView: View {
 
     /// Aura and Stars take over the whole screen while the lyrics are showing.
     private func fullStage(_ mode: LockMode) -> Bool {
-        mode == .lyrics && (s.lyricStyle == 0 || s.lyricStyle == 4)
+        mode == .lyrics && (s.lyricStyle == 0 || s.lyricStyle == 1 || s.lyricStyle == 4)
+    }
+
+    /// Big Words wears the cover's colour, pushed bright, unless a custom colour is chosen.
+    private var bigColour: Color {
+        s.lyricColorMode == 2 ? Color(red: s.lyricR, green: s.lyricG, blue: s.lyricB) : vividColour(tint)
     }
 
     private var auraColour: Color {
@@ -157,6 +162,8 @@ struct LockScreenView: View {
     private func stage(_ m: LockMetrics) -> some View {
         if s.lyricStyle == 4 {
             AuraDrum(lyrics: lyrics, track: track, colour: auraColour, size: m.size)
+        } else if s.lyricStyle == 1 {
+            BigWordStage(lyrics: lyrics, track: track, colour: bigColour, size: m.size)
         } else {
             ZStack(alignment: .topLeading) {
                 ConstellationGraph(lyrics: lyrics, track: track, audio: audio)
@@ -175,6 +182,8 @@ struct LockScreenView: View {
             Group {
                 if s.lyricStyle == 4 {
                     AuraBackdrop(url: track?.artworkURL, tint: tint, audio: audio)
+                } else if s.lyricStyle == 1 {
+                    BigWordsBackdrop(url: track?.artworkURL)
                 } else {
                     SmokyBackdrop(url: track?.artworkURL)
                 }

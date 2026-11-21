@@ -265,7 +265,7 @@ struct SettingsView: View {
                 }
             }
             Section("Motion") {
-                slider("Scatter (Big Words)", $s.lyricScatter, 0...1)
+                slider("Scatter (desktop card)", $s.lyricScatter, 0...1)
             }
 
         case .lock:
