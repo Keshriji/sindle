@@ -27,12 +27,6 @@ struct SpindleApp: App {
             Toggle("Lock screen lyrics", isOn: bind(\.lockLyricsOn))
             Divider()
             Button("Settings…") { delegate.openSettings() }
-            Button("Preview lock screen lyrics") { delegate.previewLock() }
-            Divider()
-            Button("Welcome to Spindle") { WelcomeController.show() }
-            Button("What's New") { WhatsNewController.show() }
-            Button("Enter a code…") { CodeSheetController.show() }
-            Button("Check for updates…") { UpdaterController.show() }
             Divider()
             Button("Quit Spindle") { NSApp.terminate(nil) }
         }
@@ -91,16 +85,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         audio.$needsPermission.removeDuplicates().sink { [weak self] missing in
             guard missing else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 7) {      // pop-ups are muted for the first 6 s
-                self?.status.show(Toast(icon: "exclamationmark.triangle.fill", text: "Allow Screen Recording"))
+                self?.status.show(Toast(icon: "exclamationmark.triangle.fill", text: "Allow audio access"))
             }
         }.store(in: &bag)
 
         applySettings()                        // window visibility only; cheap
-        if !UserDefaults.standard.bool(forKey: "spindle.welcomeSeen") {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { WelcomeController.show() }
-        } else {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { WhatsNewController.showIfNew() }
-        }
 
         // Everything else starts on the next turn of the run loop: AppleScript, CoreAudio, location
         // and the accessibility check all take time, and none of them may hold up the first frame.
@@ -127,6 +116,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         audio.setWanted(s.glowOn || s.eqOn)      // no system-audio capture when nothing shows it
     }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { openSettings(); return true }
-    func openSettings() { SettingsWindow.show(preview: { [weak self] in self?.previewLock() }) }
+    func openSettings() { SettingsWindow.show(player: player, preview: { [weak self] in self?.previewLock() }) }
     func previewLock() { lockLyrics?.show(preview: true) }
 }

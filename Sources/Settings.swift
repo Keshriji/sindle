@@ -81,6 +81,7 @@ final class SettingsStore: ObservableObject {
     @Published var faceLockOn: Bool     { didSet { put("faceLockOn", faceLockOn) } }
     @Published var fahrenheit: Bool     { didSet { put("fahrenheit", fahrenheit) } }
     @Published var showMenuIcon: Bool   { didSet { put("showMenuIcon", showMenuIcon) } }
+    @Published var browsersOn: Bool     { didSet { put("browsersOn", browsersOn) } }
     @Published var launchAtLogin: Bool  {
         didSet { if launchAtLogin { try? SMAppService.mainApp.register() } else { try? SMAppService.mainApp.unregister() } }
     }
@@ -118,7 +119,7 @@ final class SettingsStore: ObservableObject {
         lyricColorMode = Self.int("lyricColorMode", 1)
         lyricR = Self.num("lyricR", 1); lyricG = Self.num("lyricG", 1); lyricB = Self.num("lyricB", 1)
         faceLockOn = Self.flag("faceLockOn", false); fahrenheit = Self.flag("fahrenheit", false)
-        showMenuIcon = Self.flag("showMenuIcon", true)
+        showMenuIcon = Self.flag("showMenuIcon", true); browsersOn = Self.flag("browsersOn", true)
         launchAtLogin = SMAppService.mainApp.status == .enabled
     }
 
@@ -131,37 +132,107 @@ final class SettingsStore: ObservableObject {
 }
 
 enum Pane: String, CaseIterable, Identifiable {
-    case general = "General", island = "Island", lyrics = "Lyrics", lock = "Lock Screen", desktop = "Desktop"
-    case glow = "Beat Glow", equalizer = "Equalizer", wallpapers = "Wallpapers", privacy = "Privacy", about = "About"
+    case general = "General", notch = "Notch", playing = "Now Playing"
+    case lyrics = "Lyrics", lock = "Lock Screen", desktop = "Desktop", glow = "Beat Glow"
+    case privacy = "Privacy and Permissions", about = "About"
     var id: String { rawValue }
     var icon: String {
         switch self {
-        case .general: return "gearshape"; case .island: return "capsule.portrait"; case .lyrics: return "text.quote"
-        case .lock: return "lock"; case .desktop: return "macwindow"; case .glow: return "light.max"; case .equalizer: return "waveform"
-        case .wallpapers: return "photo"; case .privacy: return "faceid"; case .about: return "info.circle"
+        case .general: return "gearshape"; case .notch: return "capsule.portrait"; case .playing: return "music.note.list"
+        case .lyrics: return "text.quote"; case .lock: return "lock"; case .desktop: return "macwindow"
+        case .glow: return "light.max"; case .privacy: return "hand.raised"; case .about: return "info.circle"
         }
     }
+}
+
+struct PaneGroup: Identifiable {
+    let id: String
+    let panes: [Pane]
 }
 
 struct SettingsView: View {
     @ObservedObject var s = SettingsStore.shared
     @ObservedObject var face = FaceLock.shared
-    @ObservedObject var license = Licensing.shared
+    @ObservedObject var player: NowPlaying
     var preview: () -> Void
-    @State private var pane: Pane? = .general
+    @State private var pane: Pane = .general
+    @State private var tint = Color.accentColor
+
+    private let groups: [PaneGroup] = [
+        PaneGroup(id: "Spindle", panes: [.general, .notch, .playing]),
+        PaneGroup(id: "Looks", panes: [.lyrics, .lock, .desktop, .glow]),
+        PaneGroup(id: "Safety", panes: [.privacy, .about])
+    ]
 
     var body: some View {
-        NavigationSplitView {
-            List(Pane.allCases, selection: $pane) { p in Label(p.rawValue, systemImage: p.icon).tag(p) }
-                .navigationSplitViewColumnWidth(min: 170, ideal: 180)
-        } detail: {
-            Form { content(pane ?? .general) }.formStyle(.grouped).navigationTitle((pane ?? .general).rawValue)
+        HStack(spacing: 0) {
+            sidebar.frame(width: 214)
+            Divider().opacity(0.35)
+            Form { content(pane) }
+                .formStyle(.grouped)
+                .scrollContentBackground(.hidden)
         }
-        .frame(width: 780, height: 560)
+        .frame(width: 840, height: 590)
+        .background(background)
+        .tint(tint)
+        // The window takes its colour from the album that is playing, and moves to the next one with the song.
+        .task(id: player.track?.artworkURL) {
+            if let c = await AlbumColor.from(player.track?.artworkURL) {
+                withAnimation(.easeInOut(duration: 1.2)) { tint = c }
+            }
+        }
     }
+
+    private var background: some View {
+        ZStack {
+            Color(nsColor: .windowBackgroundColor)
+            LinearGradient(colors: [tint.opacity(0.38), tint.opacity(0.10), .clear], startPoint: .topLeading, endPoint: .bottomTrailing)
+            RadialGradient(colors: [tint.opacity(0.28), .clear], center: .bottomTrailing, startRadius: 0, endRadius: 520)
+        }
+    }
+
+    private var sidebar: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                ForEach(groups) { g in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(g.id.uppercased()).font(.caption2.weight(.semibold)).foregroundStyle(.secondary).padding(.leading, 10)
+                        ForEach(g.panes) { p in row(p) }
+                    }
+                }
+            }
+            .padding(12).padding(.top, 24)
+        }
+    }
+
+    private func row(_ p: Pane) -> some View {
+        Button { withAnimation(.easeOut(duration: 0.15)) { pane = p } } label: {
+            Label(p.rawValue, systemImage: p.icon)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 6).padding(.horizontal, 10)
+                .background(RoundedRectangle(cornerRadius: 8).fill(pane == p ? tint.opacity(0.30) : Color.clear))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: building blocks
 
     private func slider(_ title: String, _ v: Binding<Double>, _ r: ClosedRange<Double>, _ f: String = "%.2f") -> some View {
         HStack { Text(title); Slider(value: v, in: r); Text(String(format: f, v.wrappedValue)).monospacedDigit().frame(width: 52, alignment: .trailing) }
+    }
+
+    private func note(_ text: String) -> some View {
+        Text(text).font(.caption).foregroundStyle(.secondary)
+    }
+
+    private func colourPicker(_ title: String, _ r: Binding<Double>, _ g: Binding<Double>, _ b: Binding<Double>) -> some View {
+        ColorPicker(title, selection: Binding<Color>(
+            get: { Color(red: r.wrappedValue, green: g.wrappedValue, blue: b.wrappedValue) },
+            set: { c in
+                let n = NSColor(c).usingColorSpace(.sRGB) ?? .white
+                r.wrappedValue = Double(n.redComponent); g.wrappedValue = Double(n.greenComponent); b.wrappedValue = Double(n.blueComponent)
+            }))
     }
 
     private func styleNote(_ style: Int) -> String {
@@ -174,17 +245,22 @@ struct SettingsView: View {
         }
     }
 
-    private func permRow(_ title: String, _ granted: Bool?, _ pane: String) -> some View {
-        HStack {
+    private func permRow(_ title: String, _ detail: String, _ granted: Bool?, _ pane: String) -> some View {
+        HStack(spacing: 10) {
             Image(systemName: granted == true ? "checkmark.circle.fill" : (granted == false ? "xmark.circle" : "questionmark.circle"))
                 .foregroundStyle(granted == true ? Color.green : Color.secondary)
-            Text(title)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                Text(detail).font(.caption).foregroundStyle(.secondary)
+            }
             Spacer()
             Button("Open") {
                 if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") { NSWorkspace.shared.open(url) }
             }
         }
     }
+
+    // MARK: the panes
 
     @ViewBuilder private func content(_ p: Pane) -> some View {
         switch p {
@@ -193,61 +269,67 @@ struct SettingsView: View {
                 Toggle("Dynamic island", isOn: $s.islandOn)
                 Toggle("Pop-ups (headphones, charging, Focus, alarm)", isOn: $s.toastsOn)
                 Toggle("Volume and brightness edge bars", isOn: $s.edgeSlidersOn)
+                Toggle("Lock screen lyrics", isOn: $s.lockLyricsOn)
+                Toggle("Beat Glow", isOn: $s.glowOn)
                 Toggle("Desktop widget", isOn: $s.widgetOn)
                 Toggle("Lyrics on the desktop", isOn: $s.desktopLyricsOn)
-                Toggle("Beat Glow", isOn: $s.glowOn)
-                Toggle("Lock screen lyrics", isOn: $s.lockLyricsOn)
             }
             Section("Startup and menu bar") {
                 Toggle("Open Spindle at login", isOn: $s.launchAtLogin)
                 Toggle("Show menu bar icon", isOn: $s.showMenuIcon)
-                Text("If you hide the icon, open Spindle again from Applications to bring these settings back.").font(.caption).foregroundStyle(.secondary)
+                note("If you hide the icon, open Spindle again from Applications to bring these settings back.")
             }
-            Section("Units") { Toggle("Show temperature in °F", isOn: $s.fahrenheit) }
-            Section("Sleep and clock") {
+            Section("Units, sleep and clock") {
+                Toggle("Show temperature in °F", isOn: $s.fahrenheit)
                 Toggle("Keep the screen awake while media plays", isOn: $s.screenKeeper)
                 Picker("Clock font", selection: $s.clockFont) { Text("Rounded").tag(0); Text("Serif").tag(1); Text("Mono").tag(2) }
-                Text("The screen stays on while the island has something to show.").font(.caption).foregroundStyle(.secondary)
             }
             Section("Key sounds") {
                 Toggle("Play a click on every key press", isOn: $s.keySoundsOn)
-                Picker("Set", selection: $s.keySoundSet) {
-                    Text("Office").tag(0); Text("Retro").tag(1); Text("Soft").tag(2)
-                }
+                Picker("Set", selection: $s.keySoundSet) { Text("Office").tag(0); Text("Retro").tag(1); Text("Soft").tag(2) }
                 slider("Volume", $s.keySoundVolume, 0...1)
-                Text("Counts keys system-wide; needs Accessibility. Nothing you type is recorded.").font(.caption).foregroundStyle(.secondary)
-            }
-            Section("Permissions") {
-                permRow("Screen Recording: equalizer and Beat Glow follow the music", CGPreflightScreenCaptureAccess(), "Privacy_ScreenCapture")
-                permRow("Accessibility: typing speed", AXIsProcessTrusted(), "Privacy_Accessibility")
-                permRow("Camera: mirror and Face Unlock", AVCaptureDevice.authorizationStatus(for: .video) == .authorized, "Privacy_Camera")
-                permRow("Location: weather (otherwise your approximate city is used)", nil, "Privacy_LocationServices")
-                permRow("Automation: Spotify and Music", nil, "Privacy_Automation")
-                permRow("Full Disk Access: Focus mode badge", nil, "Privacy_AllFiles")
-                Text("Each is asked for once. Builds from GitHub keep the same signature, so a permission you allow stays allowed. After allowing Screen Recording, reopen Spindle. Reopen this window to refresh the ticks.")
-                    .font(.caption).foregroundStyle(.secondary)
+                note("Counts keys system-wide, so it needs Accessibility. Nothing you type is recorded.")
             }
 
-        case .island:
+        case .notch:
             Section("Shape and behaviour") {
                 Picker("Shape", selection: $s.floatingIsland) { Text("Notch (attached to the top)").tag(false); Text("Floating oval").tag(true) }
                 Picker("Open with", selection: $s.openOnClick) { Text("Hover").tag(false); Text("Preview, then click").tag(true) }.pickerStyle(.segmented)
+                Toggle("Open the wide dashboard straight away", isOn: $s.bigIsland)
                 Toggle("Fade out when nothing is playing", isOn: $s.hideWhenIdle)
-                Toggle("Big island (calendar-sized layout)", isOn: $s.bigIsland)
+                Toggle("Keep the island open (it won't close when you move away)", isOn: $s.keepOpen)
             }
             Section("Look") {
                 Picker("Background", selection: $s.glassStyle) { Text("Black").tag(false); Text("Glass").tag(true) }.pickerStyle(.segmented)
+                if s.glassStyle {
+                    Picker("Frost", selection: $s.glassMaterial) { Text("Light").tag(0); Text("Medium").tag(1); Text("Heavy").tag(2); Text("Solid").tag(3) }
+                    slider("Darkness", $s.glassTint, 0...0.8)
+                }
+                Toggle("Turn the playing cover like a record", isOn: $s.turntable)
                 slider("Size", $s.islandScale, 0.8...1.3)
                 slider("Animation speed", $s.animSpeed, 0.6...2.0)
             }
-
-            Section("Glass look") {
-                Picker("Frost", selection: $s.glassMaterial) { Text("Light").tag(0); Text("Medium").tag(1); Text("Heavy").tag(2); Text("Solid").tag(3) }
-                slider("Darkness", $s.glassTint, 0...0.8)
-                Text("Applies when Background is set to Glass.").font(.caption).foregroundStyle(.secondary)
+            Section("Equalizer") {
+                Toggle("Show the equalizer in the island", isOn: $s.eqOn)
+                Stepper("Bars: \(s.eqBars)", value: $s.eqBars, in: 3...8)
+                Picker("Colour", selection: $s.eqColorMode) { Text("White").tag(0); Text("Rainbow").tag(1) }
+                note("Moves with the real sound once macOS lets Spindle hear system audio. Until then the bars play a gentle demo pattern.")
             }
-            Section("Lock the island") {
-                Toggle("Keep the island open (it won't close when you move away)", isOn: $s.keepOpen)
+
+        case .playing:
+            Section("Players") {
+                HStack { Image(systemName: "music.note"); Text("Spotify and Apple Music"); Spacer(); Text("Always on").foregroundStyle(.secondary) }
+                Toggle("Safari, Chrome, Brave and Edge (YouTube, Spotify Web, SoundCloud and more)", isOn: $s.browsersOn)
+                note("To read a browser tab, turn on Allow JavaScript from Apple Events: in Safari under the Develop menu; in Chrome, Brave and Edge under View, then Developer. macOS asks once to let Spindle control each browser.")
+            }
+            Section("Playing now") {
+                if let t = player.track {
+                    LabeledContent("Song", value: t.title)
+                    LabeledContent("Artist", value: t.artist)
+                    LabeledContent("From", value: t.source)
+                } else {
+                    note("Nothing is playing.")
+                }
             }
 
         case .lyrics:
@@ -255,30 +337,21 @@ struct SettingsView: View {
                 Picker("Lyric style", selection: $s.lyricStyle) {
                     Text("Constellation").tag(0); Text("Big Words").tag(1); Text("Lens").tag(2); Text("Terminal").tag(3); Text("Aura").tag(4)
                 }
-                Text(styleNote(s.lyricStyle)).font(.caption).foregroundStyle(.secondary)
+                note(styleNote(s.lyricStyle))
                 Toggle("Constellation network behind the words (Aura and Big Words)", isOn: $s.constellationBehind)
-                slider("Timing (seconds early)", $s.lyricOffset, -2...2)
                 Toggle("Twinkling star background", isOn: $s.starsOn)
             }
-            Section { Text("Applies to the lock screen and the desktop lyrics card. Lyrics come from LRCLIB when a synced version exists.").font(.caption).foregroundStyle(.secondary) }
-
-            Section("Background") {
-                Picker("Behind the words", selection: $s.lyricBackground) { Text("Dark with stars").tag(0); Text("Blurred album cover").tag(1) }
-                Text("The lock screen always uses the blurred cover; this choice applies to the desktop lyrics card.").font(.caption).foregroundStyle(.secondary)
-            }
             Section("Colour") {
-                Picker("Words take their colour from", selection: $s.lyricColorMode) { Text("White").tag(0); Text("Album cover (bright)").tag(1); Text("Custom").tag(2); Text("Rainbow").tag(3) }
-                if s.lyricColorMode == 2 {
-                    ColorPicker("Custom colour", selection: Binding<Color>(
-                        get: { Color(red: s.lyricR, green: s.lyricG, blue: s.lyricB) },
-                        set: { c in
-                            let n = NSColor(c).usingColorSpace(.sRGB) ?? .white
-                            s.lyricR = Double(n.redComponent); s.lyricG = Double(n.greenComponent); s.lyricB = Double(n.blueComponent)
-                        }))
+                Picker("Words take their colour from", selection: $s.lyricColorMode) {
+                    Text("White").tag(0); Text("Album cover (bright)").tag(1); Text("Custom").tag(2); Text("Rainbow").tag(3)
                 }
+                if s.lyricColorMode == 2 { colourPicker("Custom colour", $s.lyricR, $s.lyricG, $s.lyricB) }
             }
-            Section("Motion") {
+            Section("Timing and desktop card") {
+                slider("Timing (seconds early)", $s.lyricOffset, -2...2)
+                Picker("Behind the words", selection: $s.lyricBackground) { Text("Dark with stars").tag(0); Text("Blurred album cover").tag(1) }
                 slider("Scatter (desktop card)", $s.lyricScatter, 0...1)
+                note("Lyrics come from LRCLIB when a synced version exists. The lock screen always uses the cover's own colours.")
             }
 
         case .lock:
@@ -294,68 +367,23 @@ struct SettingsView: View {
                 slider("Screen darkening", $s.lockDim, 0...1)
                 Toggle("Show song title and artist", isOn: $s.lockTitleOn)
                 Toggle("Show the next line", isOn: $s.lockNextLineOn)
-                Toggle("Song title down the left edge (Stars)", isOn: $s.lockVerticalTitle)
-            }
-            Section("Glass") {
-                Picker("Card", selection: $s.lockGlass) {
-                    Text("Liquid, see-through").tag(0); Text("Clear, thinner").tag(1); Text("Off, a solid card").tag(2)
-                }
+                Toggle("Song title down the left edge (Constellation)", isOn: $s.lockVerticalTitle)
+                Picker("Card", selection: $s.lockGlass) { Text("Liquid, see-through").tag(0); Text("Clear, thinner").tag(1); Text("Off, a solid card").tag(2) }
                 slider("Lens bend", $s.lensBend, 0...1)
-                Text("Lens bend sets how much the lens style smears the lines above and below the current one.").font(.caption).foregroundStyle(.secondary)
             }
-            Section {
-                Text("The record turns under the clock. Click it to lift the cover full size, and click the cover again to fill the lock screen with lyrics; click the card to cycle back.").font(.caption).foregroundStyle(.secondary)
+            Section("Try it") {
                 Button("Preview now (10 seconds)", action: preview)
-                Text("Runs at the lock screen's own layer, so the clock and password field stay above the art.").font(.caption).foregroundStyle(.secondary)
+                note("The record turns under the clock. Click it to lift the cover full size, click the cover to fill the lock screen with lyrics, and click the card to cycle back. Play a song first.")
             }
 
         case .desktop:
             Section("Widget") {
                 Toggle("Show the desktop widget", isOn: $s.widgetOn)
                 Picker("Style", selection: $s.widgetStyle) { Text("Turntable").tag(0); Text("Record sleeve").tag(1); Text("Aura").tag(2) }
-                Toggle("Turn the playing cover like a record", isOn: $s.turntable)
-                Text("Click the widget to switch style. Drag it to move it.").font(.caption).foregroundStyle(.secondary)
+                note("Click the widget to switch style. Drag it to move it.")
+                Toggle("Show lyrics on the desktop", isOn: $s.desktopLyricsOn)
             }
-            Section("Lyrics card") { Toggle("Show lyrics on the desktop", isOn: $s.desktopLyricsOn) }
-
-        case .glow:
-            Section("Beat Glow") {
-                Toggle("Enable Beat Glow", isOn: $s.glowOn)
-                Toggle("Only while music is playing", isOn: $s.glowOnlyWhilePlaying)
-            }
-            Section("Colour") {
-                Picker("Colour from", selection: $s.glowColorMode) { Text("Album cover").tag(0); Text("Custom").tag(1); Text("Rainbow").tag(2) }
-                if s.glowColorMode == 1 {
-                    ColorPicker("Custom colour", selection: Binding<Color>(
-                        get: { Color(red: s.glowR, green: s.glowG, blue: s.glowB) },
-                        set: { c in
-                            let n = NSColor(c).usingColorSpace(.sRGB) ?? .white
-                            s.glowR = Double(n.redComponent); s.glowG = Double(n.greenComponent); s.glowB = Double(n.blueComponent)
-                        }))
-                }
-            }
-            Section("Shape") {
-                Picker("Where", selection: $s.glowEdges) { Text("All edges").tag(0); Text("Top").tag(1); Text("Bottom").tag(2); Text("Sides").tag(3) }
-                slider("Brightness", $s.glowIntensity, 0.2...1)
-                slider("Thickness", $s.glowThickness, 2...24, "%.0f")
-                slider("Softness", $s.glowBlur, 4...40, "%.0f")
-            }
-            Section("Reaction") {
-                slider("Steady pulse (BPM)", $s.glowBPM, 60...180, "%.0f")
-                Text("When Spindle can hear system audio (macOS asks for Screen Recording permission) the glow follows the music. Without it, the glow pulses at the BPM above.").font(.caption).foregroundStyle(.secondary)
-            }
-            Section { Button("Reset Beat Glow settings") { s.resetGlow() } }
-
-        case .equalizer:
-            Section("Equalizer") {
-                Toggle("Show the equalizer in the island", isOn: $s.eqOn)
-                Stepper("Bars: \(s.eqBars)", value: $s.eqBars, in: 3...8)
-                Picker("Colour", selection: $s.eqColorMode) { Text("White").tag(0); Text("Rainbow").tag(1) }
-                Text("Moves with the real sound when Spindle can hear system audio (Screen Recording permission). Without it, the bars play a gentle demo pattern.").font(.caption).foregroundStyle(.secondary)
-            }
-
-        case .wallpapers:
-            Section("Desktop wallpaper") {
+            Section("Wallpaper") {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 100))], spacing: 12) {
                     ForEach(Walls.all) { w in
                         Button { Walls.apply(w) } label: {
@@ -369,31 +397,51 @@ struct SettingsView: View {
                 }
             }
 
+        case .glow:
+            Section("Beat Glow") {
+                Toggle("Enable Beat Glow", isOn: $s.glowOn)
+                Toggle("Only while music is playing", isOn: $s.glowOnlyWhilePlaying)
+            }
+            Section("Colour") {
+                Picker("Colour from", selection: $s.glowColorMode) { Text("Album cover").tag(0); Text("Custom").tag(1); Text("Rainbow").tag(2) }
+                if s.glowColorMode == 1 { colourPicker("Custom colour", $s.glowR, $s.glowG, $s.glowB) }
+            }
+            Section("Shape") {
+                Picker("Where", selection: $s.glowEdges) { Text("All edges").tag(0); Text("Top").tag(1); Text("Bottom").tag(2); Text("Sides").tag(3) }
+                slider("Brightness", $s.glowIntensity, 0.2...1)
+                slider("Thickness", $s.glowThickness, 2...24, "%.0f")
+                slider("Softness", $s.glowBlur, 4...40, "%.0f")
+                slider("Steady pulse (BPM)", $s.glowBPM, 60...180, "%.0f")
+                note("The glow follows the music once macOS lets Spindle hear system audio. Until then it pulses at the BPM above.")
+                Button("Reset Beat Glow settings") { s.resetGlow() }
+            }
+
         case .privacy:
-            Section("Private tabs (Tray, Notes, Tasks, Diary)") {
-                Toggle("Lock them until it's you", isOn: $s.faceLockOn)
+            Section("Face Unlock for private tabs (beta)") {
+                Toggle("Lock Tray, Notes, Tasks and Diary until it's you", isOn: $s.faceLockOn)
                 HStack {
-                    Button(face.enrolled > 0 ? "Redo Face Unlock (beta)" : "Set up Face Unlock (beta)") { face.startEnrol() }
+                    Button(face.enrolled > 0 ? "Redo Face Unlock" : "Set up Face Unlock") { face.startEnrol() }
                     if face.enrolled > 0 { Button("Remove face data") { face.resetFace() } }
                 }
                 if !face.status.isEmpty { Text(face.status).font(.caption) }
                 slider("Strictness", $face.threshold, 0.2...0.9)
-                Text("Lower is stricter. A convenience lock, not strong security: a photo of you might fool it. It does not unlock your Mac. Touch ID or your password always works.").font(.caption).foregroundStyle(.secondary)
+                note("Lower is stricter. A convenience lock, not strong security: a photo of you might fool it. It does not unlock your Mac. Touch ID or your password always works.")
+            }
+            Section("Permissions") {
+                permRow("Audio capture", "Equalizer and Beat Glow follow the music. Asked once, when music first plays.", nil, "Privacy_ScreenCapture")
+                permRow("Accessibility", "Typing speed and key sounds.", AXIsProcessTrusted(), "Privacy_Accessibility")
+                permRow("Camera", "Mirror and Face Unlock.", AVCaptureDevice.authorizationStatus(for: .video) == .authorized, "Privacy_Camera")
+                permRow("Automation", "Spotify, Music, Safari and Chrome.", nil, "Privacy_Automation")
+                permRow("Location", "Weather. Without it your approximate city is used.", nil, "Privacy_LocationServices")
+                permRow("Full Disk Access", "Focus mode badge.", nil, "Privacy_AllFiles")
+                note("Builds from GitHub keep the same signature, so a permission you allow stays allowed. Reopen this window to refresh the ticks.")
             }
 
         case .about:
             Section("Spindle") {
                 Text("Version 0.1.0")
                 Text("Weather: MET Norway · Lyrics: LRCLIB").font(.caption)
-                Text("Spindle is an independent app and isn't affiliated with Spotify or Apple.").font(.caption).foregroundStyle(.secondary)
-            }
-            Section("Licence and updates") {
-                Text(license.summary).font(.caption)
-                HStack {
-                    Button("Enter a code…") { CodeSheetController.show() }
-                    Button("Check for updates…") { UpdaterController.show() }
-                }
-                Text("Spindle is free. A code is a thank-you, not a paywall; no feature is locked.").font(.caption).foregroundStyle(.secondary)
+                note("Spindle is an independent app and isn't affiliated with Spotify, Apple or Google.")
             }
         }
     }
@@ -401,11 +449,14 @@ struct SettingsView: View {
 
 enum SettingsWindow {
     private static var win: NSWindow?
-    static func show(preview: @escaping () -> Void) {
+    static func show(player: NowPlaying, preview: @escaping () -> Void) {
         if win == nil {
-            let w = NSWindow(contentViewController: NSHostingController(rootView: SettingsView(preview: preview)))
+            let w = NSWindow(contentViewController: NSHostingController(rootView: SettingsView(player: player, preview: preview)))
             w.title = "Spindle Settings"
-            w.styleMask = [.titled, .closable]
+            w.styleMask = [.titled, .closable, .fullSizeContentView]
+            w.titlebarAppearsTransparent = true
+            w.titleVisibility = .hidden
+            w.isMovableByWindowBackground = true
             w.isReleasedWhenClosed = false
             w.center()
             win = w

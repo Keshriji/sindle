@@ -55,6 +55,7 @@ final class NowPlaying: ObservableObject {
             var result: Track?
             if self.running("com.spotify.client") { result = self.spotify() }
             if result == nil, self.running("com.apple.Music") { result = self.music() }
+            if result == nil { result = self.browser() }
             if let found = result, found.source == "Music", found.artworkURL == nil {
                 var withArt = found
                 withArt.artworkURL = self.musicArtwork(key: found.title + "|" + found.artist)
@@ -93,10 +94,93 @@ final class NowPlaying: ObservableObject {
         return r.flatMap { parse($0, source: "Music") }
     }
 
+    // MARK: - Safari, Chrome and other browsers
+
+    private static let browsers: [(app: String, id: String, chromium: Bool)] = [
+        ("Safari", "com.apple.Safari", false),
+        ("Google Chrome", "com.google.Chrome", true),
+        ("Brave Browser", "com.brave.Browser", true),
+        ("Microsoft Edge", "com.microsoft.edgemac", true)
+    ]
+    private static let mediaSites = ["youtube.com", "spotify.com", "music.apple.com", "soundcloud.com",
+                                     "deezer.com", "tidal.com", "bandcamp.com"]
+    /// Runs inside the page: reads the browser's own "now playing" record (title, artist, cover) plus the
+    /// position of the media element. Single quotes only, so it can sit inside an AppleScript string.
+    private static let readMedia = "(function(){var v=document.querySelector('video,audio');if(!v)return '';var m=navigator.mediaSession&&navigator.mediaSession.metadata;var a='';if(m&&m.artwork&&m.artwork.length){a=m.artwork[m.artwork.length-1].src}return [m?m.title:document.title,m?m.artist:'',a,v.currentTime||0,v.duration||0,v.paused?0:1].join('||')})()"
+
+    private func tabLoop(_ app: String, chromium: Bool, then action: String) -> String {
+        let cond = Self.mediaSites.map { "u contains \"\($0)\"" }.joined(separator: " or ")
+        let exec = chromium ? "execute tb javascript js" : "do JavaScript js in tb"
+        return """
+        tell application "\(app)"
+          set js to "\(Self.readMedia)"
+          repeat with w in windows
+            repeat with tb in tabs of w
+              try
+                set u to URL of tb
+                if \(cond) then
+                  set r to \(exec)
+                  if r ends with "||1" then
+                    \(action)
+                  end if
+                end if
+              end try
+            end repeat
+          end repeat
+          return ""
+        end tell
+        """
+    }
+
+    /// The first tab that is really playing. Needs "Allow JavaScript from Apple Events" in the browser's
+    /// developer menu (Safari: Develop menu; Chrome, Brave, Edge: View > Developer).
+    private func browser() -> Track? {
+        guard SettingsStore.shared.browsersOn else { return nil }
+        for b in Self.browsers where running(b.id) {
+            let src = tabLoop(b.app, chromium: b.chromium, then: "return r & \"||\" & u")
+            guard let r = run(src), !r.isEmpty else { continue }
+            let p = r.components(separatedBy: "||")
+            guard p.count >= 7 else { continue }
+            func num(_ x: String) -> Double { let d = Double(x) ?? 0; return d.isFinite ? d : 0 }
+            let url = p[6]
+            var art = URL(string: p[2])
+            if (art == nil || p[2].isEmpty), let id = Self.youTubeID(url) { art = URL(string: "https://i.ytimg.com/vi/\(id)/hqdefault.jpg") }
+            let host = URL(string: url)?.host ?? b.app
+            return Track(title: p[0].isEmpty ? host : p[0], artist: p[1].isEmpty ? host : p[1], artworkURL: art,
+                         position: max(num(p[3]), 0), duration: max(num(p[4]), 1), source: b.app, isPlaying: true)
+        }
+        return nil
+    }
+
+    private static func youTubeID(_ url: String) -> String? {
+        guard let comps = URLComponents(string: url), comps.host?.contains("youtube.com") == true else { return nil }
+        return comps.queryItems?.first(where: { $0.name == "v" })?.value
+    }
+
+    /// Play/pause, next and previous inside the playing tab.
+    private func sendBrowser(_ app: String, _ command: String) {
+        guard let b = Self.browsers.first(where: { $0.app == app }) else { return }
+        let js: String
+        switch command {
+        case "next track":
+            js = "(function(){var b=document.querySelector('.ytp-next-button,.next-button,[data-testid=control-button-skip-forward],[aria-label=Next],.skipControl__next');if(b){b.click()}})()"
+        case "previous track":
+            js = "(function(){var b=document.querySelector('.previous-button,[data-testid=control-button-skip-back],[aria-label=Previous],.skipControl__previous');if(b){b.click()}else{var v=document.querySelector('video,audio');if(v){v.currentTime=0}}})()"
+        default:
+            js = "(function(){var v=document.querySelector('video,audio');if(v){if(v.paused){v.play()}else{v.pause()}}})()"
+        }
+        let exec = b.chromium ? "execute tb javascript \"\(js)\"" : "do JavaScript \"\(js)\" in tb"
+        scriptQueue.async { _ = self.run(self.tabLoop(app, chromium: b.chromium, then: "\(exec)\nreturn \"\"")) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.poll() }
+    }
+
     private func parse(_ s: String, source: String) -> Track? {
         let p = s.components(separatedBy: "||")
         guard p.count >= 6, !p[0].isEmpty else { return nil }
-        func num(_ x: String) -> Double { Double(x.replacingOccurrences(of: ",", with: ".")) ?? 0 }
+        func num(_ x: String) -> Double {
+            let d = Double(x.replacingOccurrences(of: ",", with: ".")) ?? 0
+            return d.isFinite ? d : 0                       // a live stream reports a duration of NaN or infinity
+        }
         return Track(title: p[0], artist: p[1], artworkURL: URL(string: p[2]),
                      position: max(num(p[3]), 0), duration: max(num(p[4]), 1),
                      source: source, isPlaying: p[5].contains("playing"))
@@ -167,6 +251,7 @@ final class NowPlaying: ObservableObject {
     func send(_ command: String) {   // "playpause", "next track", "previous track"
         let app = (track?.source.isEmpty == false ? track?.source : nil) ?? (lastSource.isEmpty ? targetApp : lastSource)
         guard let app else { return }
+        if Self.browsers.contains(where: { $0.app == app }) { sendBrowser(app, command); return }
         scriptQueue.async { _ = self.run("tell application \"\(app)\" to \(command)") }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self.poll() }
     }

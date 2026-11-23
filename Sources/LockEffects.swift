@@ -265,15 +265,16 @@ final class BreathTrail {
     }
 }
 
-/// The cover turned into slow black-and-white smoke that breathes with the music: it swells on every beat and
-/// settles back, with older zoom levels trailing behind the newest like a motion blur. A pool of light at the top
-/// brightens with the sound, and specks drift over everything.
+/// The cover's own colours, melted into soft glowing shapes on black, breathing with the music: the picture swells on
+/// every beat and settles back, with older zoom levels trailing behind the newest like a motion blur. A pool of the
+/// cover's brightest colour glows behind the clock and pulses with the sound; specks drift over everything.
 struct SmokyBackdrop: View {
     let url: URL?
     let audio: AudioLevel
+    let tint: Color
     @StateObject private var soft = SoftCover()
     @State private var trail = BreathTrail()
-    private let ghostOpacity: [Double] = [0.8, 0.32, 0.2, 0.12]
+    private let ghostOpacity: [Double] = [0.85, 0.34, 0.2, 0.12]
 
     var body: some View {
         GeometryReader { g in
@@ -286,21 +287,23 @@ struct SmokyBackdrop: View {
                 let h: CGFloat = g.size.height
                 ZStack {
                     Color.black
-                    if let near = soft.near {
+                    if let far = soft.far {
                         ForEach([3, 2, 1, 0], id: \.self) { i in
-                            cover(near, w, h, scale: trail.scales[i * 2], opacity: ghostOpacity[i], t: t, level: level)
+                            cover(far, w, h, scale: trail.scales[i * 2], opacity: ghostOpacity[i], t: t, level: level)
                         }
+                    }
+                    if let near = soft.near {
                         Image(nsImage: near).resizable().interpolation(.high).scaledToFill()
                             .frame(width: w * 1.5, height: h * 1.5)
-                            .saturation(0).contrast(1.6)
+                            .saturation(1.3)
                             .rotationEffect(.degrees(t * 0.6))
                             .blendMode(.plusLighter)
-                            .opacity(0.16)
+                            .opacity(0.14)
                     }
-                    RadialGradient(colors: [.white.opacity(0.16 + 0.22 * level), .clear], center: UnitPoint(x: 0.5, y: 0.1),
-                                   startRadius: 0, endRadius: w * 0.35)
-                    RadialGradient(colors: [.clear, .black.opacity(0.75)], center: .center,
-                                   startRadius: w * 0.25, endRadius: w * 0.75)
+                    RadialGradient(colors: [tint.opacity(0.30 + 0.3 * level), .clear], center: UnitPoint(x: 0.5, y: 0.1),
+                                   startRadius: 0, endRadius: w * 0.4)
+                    RadialGradient(colors: [.clear, .black.opacity(0.78)], center: .center,
+                                   startRadius: w * 0.22, endRadius: w * 0.75)
                     Specks(t: t)
                 }
                 .frame(width: w, height: h)
@@ -315,7 +318,7 @@ struct SmokyBackdrop: View {
         let bob: CGFloat = CGFloat(cos(t * 0.07)) * h * 0.02
         return Image(nsImage: img).resizable().interpolation(.high).scaledToFill()
             .frame(width: w * 1.2, height: h * 1.2)
-            .saturation(0).contrast(1.35).brightness(-0.18 + 0.14 * level)
+            .saturation(1.25).brightness(-0.12 + 0.12 * level)
             .scaleEffect(CGFloat(scale))
             .rotationEffect(.degrees(sin(t * 0.05) * 1.5))
             .offset(x: sway, y: bob)
@@ -352,9 +355,10 @@ struct Specks: View {
 
 // MARK: - Stars: the word network
 
-/// Every word of the song becomes a point. Sixteen at a time are drawn, each joined to the one before (and
-/// often to the one two or three back) so a mesh of thin lines grows as the song goes. The word being sung gets a
-/// ring and a big label; when the sixteen are used up, a fresh network starts.
+/// Every word of the song becomes a point. Sixteen at a time are drawn, each joined to the one before and to several
+/// earlier ones, so a dense mesh of thin lines grows as the song goes. Every point is a small sparkle with its word
+/// beside it. The word being sung gets a ring that glides to it from the last word, and a big label. When the sixteen
+/// are used up, the old network fades out as a fresh one begins.
 struct ConstellationGraph: View {
     @ObservedObject var lyrics: LyricsStore
     let track: Track?
@@ -364,13 +368,19 @@ struct ConstellationGraph: View {
     @State private var words: [AuraChunk] = []
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1.0 / 30.0)) { tl in
+        TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { tl in
             Canvas { ctx, size in
                 draw(&ctx, size, tl.date)
             }
         }
         .onAppear { words = AuraTimeline.build(lyrics.lines, pairing: false) }
         .onChange(of: lyrics.lines) { _, new in words = AuraTimeline.build(new, pairing: false) }
+    }
+
+    /// Smooth start and stop: 0...1 in, 0...1 out.
+    private func ease(_ x: Double) -> Double {
+        let t: Double = min(1, max(0, x))
+        return t * t * (3 - 2 * t)
     }
 
     private func mix(_ k: Int, _ seg: Int, _ m: Int) -> Int {
@@ -381,12 +391,25 @@ struct ConstellationGraph: View {
     private func point(_ k: Int, _ seg: Int, _ band: CGRect) -> CGPoint {
         let n: Int = k - seg * 16
         var rng = SeededRNG(s: UInt64(truncatingIfNeeded: seg &* 7919 &+ k &* 104729 &+ 17))
-        let fx: Double = Double(n) / 15.0 + Double.random(in: -0.045...0.045, using: &rng)
-        let wave: Double = sin(Double(n) * 1.55 + Double(seg)) * 0.4
-        let fy: Double = 0.5 + wave + Double.random(in: -0.12...0.12, using: &rng)
+        let fx: Double = Double(n) / 15.0 + Double.random(in: -0.05...0.05, using: &rng)
+        let wave: Double = sin(Double(n) * 1.55 + Double(seg)) * 0.42
+        let fy: Double = 0.5 + wave + Double.random(in: -0.14...0.14, using: &rng)
         let cx: Double = min(1, max(0, fx))
         let cy: Double = min(1, max(0, fy))
         return CGPoint(x: band.minX + band.width * CGFloat(cx), y: band.minY + band.height * CGFloat(cy))
+    }
+
+    /// A four-point sparkle.
+    private func sparkle(_ c: CGPoint, _ r: CGFloat) -> Path {
+        var p = Path()
+        for q in 0..<8 {
+            let a: Double = Double(q) * Double.pi / 4 - Double.pi / 2
+            let rr: CGFloat = q % 2 == 0 ? r : r * 0.22
+            let pt = CGPoint(x: c.x + CGFloat(cos(a)) * rr, y: c.y + CGFloat(sin(a)) * rr)
+            if q == 0 { p.move(to: pt) } else { p.addLine(to: pt) }
+        }
+        p.closeSubpath()
+        return p
     }
 
     private func draw(_ ctx: inout GraphicsContext, _ size: CGSize, _ date: Date) {
@@ -396,21 +419,33 @@ struct ConstellationGraph: View {
         guard cur >= 0 else { return }
         let seg: Int = cur / 16
         let first: Int = seg * 16
-        let last: Int = min(cur, first + 15)
-        let band = CGRect(x: size.width * 0.2, y: size.height * 0.40, width: size.width * 0.6, height: size.height * 0.30)
+        let band = CGRect(x: size.width * 0.08, y: size.height * 0.44, width: size.width * 0.84, height: size.height * 0.36)
         let live: Bool = date.timeIntervalSince(audio.lastSample) < 1.5
         let level: Double = live ? audio.level : 0.3
 
+        // The network that just filled up fades away while the next one starts.
+        let sinceSeg: Double = pos - words[first].start
+        if seg > 0 && sinceSeg < 0.7 {
+            drawSegment(&ctx, size, band, seg - 1, (seg - 1) * 16, first - 1, pos, alpha: 1 - ease(sinceSeg / 0.7), ring: false, level: level)
+        }
+        drawSegment(&ctx, size, band, seg, first, cur, pos, alpha: 1, ring: true, level: level)
+    }
+
+    private func drawSegment(_ ctx: inout GraphicsContext, _ size: CGSize, _ band: CGRect, _ seg: Int,
+                             _ first: Int, _ last: Int, _ pos: Double, alpha: Double, ring: Bool, level: Double) {
+        guard last >= first, last < words.count else { return }
+        ctx.opacity = alpha
         var pts: [CGPoint] = []
         for k in first...last { pts.append(point(k, seg, band)) }
 
-        // the lines
+        // the thin lines, each growing out of the earlier point
         for n in 1..<max(pts.count, 1) {
             let k: Int = first + n
-            let grow: Double = min(1, max(0, (pos - words[k].start) / 0.28))
+            let grow: Double = ease((pos - words[k].start) / 0.35)
             var links: [Int] = [n - 1]
-            if n >= 2 && mix(k, seg, 3) != 0 { links.append(n - 2) }
-            if n >= 3 && mix(k, seg, 5) == 0 { links.append(n - 3) }
+            if n >= 2 && mix(k, seg, 4) != 0 { links.append(n - 2) }
+            if n >= 3 && mix(k, seg, 2) == 0 { links.append(n - 3) }
+            if n >= 4 && mix(k, seg, 5) == 0 { links.append(n - 4) }
             for l in links {
                 let from: CGPoint = pts[l]
                 let to: CGPoint = pts[n]
@@ -418,29 +453,35 @@ struct ConstellationGraph: View {
                 var p = Path()
                 p.move(to: from)
                 p.addLine(to: end)
-                ctx.stroke(p, with: .color(colourFor(k).opacity(dim ? 0.3 : 0.8)), lineWidth: 0.9)
+                ctx.stroke(p, with: .color(colourFor(k).opacity(dim ? 0.3 : 0.75)), lineWidth: 0.9)
             }
         }
 
-        // the small dots and labels
-        let small: CGFloat = size.width * 0.0105
+        // a sparkle and a small word at every point
+        let small: CGFloat = size.width * 0.0115
+        let spark: CGFloat = size.width * 0.0046
         for n in 0..<pts.count {
             let k: Int = first + n
-            if k == cur { continue }
-            let fade: Double = min(1, max(0, (pos - words[k].start) / 0.2))
+            if ring && k == last { continue }                   // the current word is drawn below, bigger
+            let fade: Double = ease((pos - words[k].start) / 0.3)
             let pt: CGPoint = pts[n]
-            ctx.fill(Path(ellipseIn: CGRect(x: pt.x - 1.6, y: pt.y - 1.6, width: 3.2, height: 3.2)),
-                     with: .color(colourFor(k).opacity(0.9 * fade)))
-            let label = Text(words[k].text).font(.system(size: small, weight: .semibold)).foregroundColor(colourFor(k).opacity(0.85 * fade))
-            ctx.draw(label, at: CGPoint(x: pt.x + 4, y: pt.y + small * 0.9), anchor: .leading)
+            ctx.fill(sparkle(pt, spark * CGFloat(0.5 + 0.5 * fade)), with: .color(colourFor(k).opacity(0.95 * fade)))
+            let label = Text(words[k].text).font(.system(size: small, weight: .semibold)).foregroundColor(colourFor(k).opacity(0.9 * fade))
+            ctx.draw(label, at: CGPoint(x: pt.x + spark + 3, y: pt.y + small * 0.9), anchor: .leading)
         }
 
-        // the word being sung: a ring, a sparkle and a big label
-        let c: CGPoint = pts[pts.count - 1]
-        let ringColour: Color = colourFor(cur)
+        guard ring else { ctx.opacity = 1; return }
+
+        // the word being sung: a ring that glides in from the last word, a sparkle and a big label
+        let idx: Int = pts.count - 1
+        let arrive: Double = ease((pos - words[last].start) / 0.28)
+        let from: CGPoint = idx > 0 ? pts[idx - 1] : pts[idx]
+        let target: CGPoint = pts[idx]
+        let c = CGPoint(x: from.x + (target.x - from.x) * CGFloat(arrive), y: from.y + (target.y - from.y) * CGFloat(arrive))
+        let tone: Color = colourFor(last)
         let radius: CGFloat = size.width * 0.012 * CGFloat(1.0 + 0.3 * level)
         ctx.stroke(Path(ellipseIn: CGRect(x: c.x - radius, y: c.y - radius, width: radius * 2, height: radius * 2)),
-                   with: .color(ringColour), lineWidth: 1.4)
+                   with: .color(tone), lineWidth: 1.4)
         for q in 0..<4 {
             let a: Double = Double(q) * Double.pi / 2
             let dx: CGFloat = CGFloat(cos(a))
@@ -448,27 +489,20 @@ struct ConstellationGraph: View {
             var tick = Path()
             tick.move(to: CGPoint(x: c.x + dx * radius * 1.15, y: c.y + dy * radius * 1.15))
             tick.addLine(to: CGPoint(x: c.x + dx * radius * 1.6, y: c.y + dy * radius * 1.6))
-            ctx.stroke(tick, with: .color(ringColour.opacity(0.9)), lineWidth: 1.2)
+            ctx.stroke(tick, with: .color(tone.opacity(0.9)), lineWidth: 1.2)
         }
-        var star = Path()
-        let tip: CGFloat = radius * 0.62
-        let waist: CGFloat = radius * 0.14
-        for q in 0..<8 {
-            let a: Double = Double(q) * Double.pi / 4 - Double.pi / 2
-            let r: CGFloat = q % 2 == 0 ? tip : waist
-            let p = CGPoint(x: c.x + CGFloat(cos(a)) * r, y: c.y + CGFloat(sin(a)) * r)
-            if q == 0 { star.move(to: p) } else { star.addLine(to: p) }
-        }
-        star.closeSubpath()
-        ctx.fill(star, with: .color(ringColour))
+        ctx.fill(sparkle(c, radius * 0.66), with: .color(tone))
 
-        let big = Text(words[cur].text).font(.system(size: size.width * 0.036, weight: .black)).foregroundColor(ringColour)
         if !dim {
+            let big = Text(words[last].text).font(.system(size: size.width * 0.036, weight: .black)).foregroundColor(tone)
+            let rise: CGFloat = CGFloat(1 - arrive) * radius * 0.8
+            ctx.opacity = alpha * arrive
             ctx.drawLayer { layer in
-                layer.addFilter(.shadow(color: .black.opacity(0.6), radius: 4))
-                layer.draw(big, at: CGPoint(x: c.x + radius * 1.7, y: c.y + radius * 1.4), anchor: .topLeading)
+                layer.addFilter(.shadow(color: tone.opacity(0.7), radius: 8))
+                layer.draw(big, at: CGPoint(x: c.x + radius * 1.7, y: c.y + radius * 1.4 + rise), anchor: .topLeading)
             }
         }
+        ctx.opacity = 1
     }
 }
 
@@ -573,6 +607,7 @@ struct LockBeatGlow: View {
             ForEach(0..<4, id: \.self) { i in
                 shape.stroke(col.opacity(alphas[i] * power), lineWidth: widths[i] * thick)
             }
+            shape.stroke(Color.white.opacity(0.5 * power), lineWidth: 1.1)           // the hot thin core
         }
         .blendMode(.plusLighter)
         .mask(

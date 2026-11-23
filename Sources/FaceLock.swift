@@ -32,7 +32,7 @@ final class FaceLock: NSObject, ObservableObject, AVCaptureVideoDataOutputSample
     }
 
     // MARK: public
-    func startEnrol() { prints = []; post("Look at the camera…", enrolled: 0); startCamera(.enrol(5)) }
+    func startEnrol() { prints = []; post("Look at the camera…", enrolled: 0); startCamera(.enrol(8)) }
     func startVerify() { guard enrolled > 0, !unlocked else { return }; post("Looking for you…"); startCamera(.verify) }
     func lock() { stopCamera(); post("", unlocked: false) }
     func resetFace() {
@@ -61,12 +61,13 @@ final class FaceLock: NSObject, ObservableObject, AVCaptureVideoDataOutputSample
             guard ok else { self.post("Camera access is off"); return }
             self.queue.async {
                 self.mode = m; self.hits = 0; self.started = Date()
-                if self.session.inputs.isEmpty, let dev = AVCaptureDevice.default(for: .video),
+                if self.session.inputs.isEmpty, let dev = MirrorNSView.pickCamera(),
                    let input = try? AVCaptureDeviceInput(device: dev), self.session.canAddInput(input) {
                     self.session.addInput(input)
                 }
                 if self.session.outputs.isEmpty {
                     self.output.alwaysDiscardsLateVideoFrames = true
+                    self.output.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
                     self.output.setSampleBufferDelegate(self, queue: self.queue)
                     if self.session.canAddOutput(self.output) { self.session.addOutput(self.output) }
                 }
@@ -86,7 +87,9 @@ final class FaceLock: NSObject, ObservableObject, AVCaptureVideoDataOutputSample
         guard let box = faces.results?.max(by: { $0.boundingBox.width < $1.boundingBox.width })?.boundingBox,
               box.width > 0.15 else { timeoutCheck(); return }
         let fp = VNGenerateImageFeaturePrintRequest()
-        fp.regionOfInterest = box
+        // a little wider than the face itself, so the hairline and chin count too
+        let wide = box.insetBy(dx: -box.width * 0.12, dy: -box.height * 0.12).intersection(CGRect(x: 0, y: 0, width: 1, height: 1))
+        fp.regionOfInterest = wide
         try? handler.perform([fp])
         guard let obs = fp.results?.first as? VNFeaturePrintObservation else { return }
 
@@ -100,7 +103,7 @@ final class FaceLock: NSObject, ObservableObject, AVCaptureVideoDataOutputSample
                 post("Face saved. Turn on the lock in Settings.", enrolled: prints.count)
             } else {
                 mode = .enrol(left - 1)
-                post("Keep looking… \(5 - left + 1)/5", enrolled: prints.count)
+                post("Keep looking, turn a little each time… \(8 - left + 1)/8", enrolled: prints.count)
             }
         case .verify:
             var best = Float.greatestFiniteMagnitude
@@ -108,7 +111,11 @@ final class FaceLock: NSObject, ObservableObject, AVCaptureVideoDataOutputSample
             if Double(best) < threshold {
                 hits += 1
                 if hits >= 2 { mode = .idle; session.stopRunning(); post("Unlocked", unlocked: true) }
-            } else { hits = 0; timeoutCheck() }
+            } else {
+                hits = 0
+                post(String(format: "Looking for you… score %.2f, needs under %.2f", Double(best), threshold))
+                timeoutCheck()
+            }
         case .idle: break
         }
     }

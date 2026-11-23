@@ -145,6 +145,14 @@ struct LockScreenView: View {
         mode == .lyrics && (s.lyricStyle == 0 || s.lyricStyle == 1 || s.lyricStyle == 4)
     }
 
+    /// The network wants a lighter, creamier tone than the huge words do: the cover colour mixed with white.
+    private func graphColour(_ i: Int) -> Color {
+        let base = wordColour(i)
+        guard s.lyricColorMode == 1 else { return base }
+        let a: NSColor = NSColor(base).usingColorSpace(.sRGB) ?? NSColor.white
+        return Color(nsColor: a.blended(withFraction: 0.5, of: NSColor.white) ?? a)
+    }
+
     /// Colour of word number `i`, from the Settings choice (white, cover colour, custom or rainbow).
     private func wordColour(_ i: Int) -> Color {
         lyricColour(s.lyricColorMode, tint: tint, custom: Color(red: s.lyricR, green: s.lyricG, blue: s.lyricB), index: i)
@@ -166,7 +174,7 @@ struct LockScreenView: View {
             .frame(width: m.size.width, height: m.size.height)
         } else {
             ZStack(alignment: .topLeading) {
-                ConstellationGraph(lyrics: lyrics, track: track, audio: audio, colourFor: wordColour)
+                ConstellationGraph(lyrics: lyrics, track: track, audio: audio, colourFor: graphColour)
                 if s.lockVerticalTitle, let title = track?.title {
                     VerticalTitle(text: title, colour: tint, width: m.size.width)
                         .offset(x: m.size.width * 0.018, y: m.size.height * 0.16)
@@ -185,7 +193,7 @@ struct LockScreenView: View {
                 } else if s.lyricStyle == 1 {
                     BigWordsBackdrop(url: track?.artworkURL)
                 } else {
-                    SmokyBackdrop(url: track?.artworkURL, audio: audio)
+                    SmokyBackdrop(url: track?.artworkURL, audio: audio, tint: tint)
                 }
             }
             .frame(width: m.size.width, height: m.size.height)

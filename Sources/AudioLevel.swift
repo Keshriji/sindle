@@ -1,72 +1,58 @@
 import Foundation
-import ScreenCaptureKit
+import CoreAudio
+import AudioToolbox
 import Accelerate
 import SwiftUI
-import CoreMedia
-import CoreGraphics
 
-/// Listens to the Mac's system audio (not the microphone) and reports the beat of what is playing.
-/// Needs Screen Recording permission (macOS lumps system-audio capture under it). Nothing is saved or sent anywhere.
+/// Listens to the Mac's system audio and reports the beat of what is playing.
 ///
-/// Audio arrives roughly every 20 ms. Publishing for every buffer (and writing the eight bands one
-/// at a time, which sends eight change notifications) is what made Spindle heavy and unresponsive,
-/// so updates are throttled to 20 a second and the bands are published in a single assignment.
-final class AudioLevel: NSObject, ObservableObject, SCStreamOutput, SCStreamDelegate {
-    /// 0...1 beat envelope: jumps to 1 on a detected beat and fades over about half a second. The
-    /// Beat Glow reads this, so the light flashes with the kick instead of drifting on a guessed tempo.
+/// This uses a Core Audio "tap" (macOS 14.2 and later). The permission it needs is *Audio Capture*, asked once,
+/// not Screen Recording. Screen Recording is the one macOS keeps re-asking about (and re-confirms every month),
+/// which is why the old version seemed to ask again after you had allowed it. Nothing is recorded or sent anywhere.
+///
+/// Audio arrives in small buffers; the last 1024 samples are analysed 20 times a second, and the results are
+/// published in a single assignment so SwiftUI is not flooded.
+final class AudioLevel: NSObject, ObservableObject {
+    /// 0...1 beat envelope: jumps to 1 on a detected beat and fades over about half a second.
     @Published var level = 0.0
     var lastSample = Date.distantPast         // read by the glow to know if live audio is arriving
     @Published var bands = [Double](repeating: 0, count: 8)
-    /// True while macOS has not handed over Screen Recording yet, so capture cannot start.
+    /// True while the tap hears only silence although music is playing: audio access has not been allowed.
     @Published var needsPermission = false
 
-    private var stream: SCStream?
+    private var tapID = AudioObjectID(kAudioObjectUnknown)
+    private var aggregateID = AudioObjectID(kAudioObjectUnknown)
+    private var procID: AudioDeviceIOProcID?
+    private let ioQueue = DispatchQueue(label: "spindle.audio.tap", qos: .userInitiated)
+    private var running = false
     private var starting = false
+    private var listening = false
+    private var wanted = false
+    private var hasMusic = false
     private var lastPublish = Date.distantPast
-    private var askedThisRun = false
+    private var silentSince: Date?
+    private var ring: [Float] = []             // touched on ioQueue only
     private var energy: [Double] = []          // recent low-band energy, used to find beats
     private var lastBeat = Date.distantPast
     private lazy var fftSetup = vDSP_create_fftsetup(10, FFTRadix(kFFTRadix2))
 
     func start() {
-        guard stream == nil, !starting else { return }
+        guard !running, !starting else { return }
+        guard #available(macOS 14.2, *) else { return }
         starting = true
-        Task {
-            // Ask at most once per run, and never while capture is already up: calling into
-            // ScreenCaptureKit again and again is what made the permission sheet keep coming back
-            // after it had been allowed. The ask blocks, so it stays off the main thread.
-            if !CGPreflightScreenCaptureAccess() {
-                if !askedThisRun { askedThisRun = true; _ = CGRequestScreenCaptureAccess() }
-                await MainActor.run { self.needsPermission = true; self.starting = false }
-                return
-            }
-            await MainActor.run { self.needsPermission = false }
-            do {
-                let content = try await SCShareableContent.current
-                guard let display = content.displays.first else { await MainActor.run { self.starting = false }; return }
-                let cfg = SCStreamConfiguration()
-                cfg.capturesAudio = true
-                cfg.excludesCurrentProcessAudio = true
-                cfg.width = 2; cfg.height = 2                               // video is not used
-                cfg.minimumFrameInterval = CMTime(value: 1, timescale: 1)
-                let s = SCStream(filter: SCContentFilter(display: display, excludingWindows: []),
-                                 configuration: cfg, delegate: self)
-                try s.addStreamOutput(self, type: .audio, sampleHandlerQueue: DispatchQueue(label: "spindle.audio"))
-                try await s.startCapture()
-                await MainActor.run { self.stream = s; self.starting = false }
-            } catch {
-                // Permission went away or capture failed: the glow keeps its steady pulse.
-                await MainActor.run { self.starting = false }
+        listenForOutputChanges()
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            let ok = self.startTap()
+            DispatchQueue.main.async {
+                self.starting = false
+                self.running = ok
+                if !ok { self.needsPermission = true }
             }
         }
     }
 
-    private var wanted = false
-    private var hasMusic = false
-
-    /// Capture runs only when something shows it (Beat Glow or the island equalizer) *and* music is
-    /// playing. Starting it during launch meant a Screen Recording consent sheet before the island
-    /// was usable, which looks exactly like a frozen app.
+    /// Capture runs only when something shows it (Beat Glow or an equalizer) *and* music is playing.
     func setWanted(_ on: Bool) {
         wanted = on
         refreshState()
@@ -81,58 +67,155 @@ final class AudioLevel: NSObject, ObservableObject, SCStreamOutput, SCStreamDele
         if wanted && hasMusic { start() } else if !wanted { stop() }
     }
 
-    /// Stops system-audio capture (and with it the Screen Recording indicator in the menu bar).
     func stop() {
-        guard let s = stream else { return }
-        stream = nil
-        Task { try? await s.stopCapture() }
+        guard running || starting else { return }
+        running = false
+        let agg = aggregateID, tap = tapID, proc = procID
+        aggregateID = AudioObjectID(kAudioObjectUnknown)
+        tapID = AudioObjectID(kAudioObjectUnknown)
+        procID = nil
+        DispatchQueue.global(qos: .utility).async {
+            if let proc { AudioDeviceStop(agg, proc); AudioDeviceDestroyIOProcID(agg, proc) }
+            if agg != AudioObjectID(kAudioObjectUnknown) { AudioHardwareDestroyAggregateDevice(agg) }
+            if #available(macOS 14.2, *), tap != AudioObjectID(kAudioObjectUnknown) { AudioHardwareDestroyProcessTap(tap) }
+        }
     }
 
-    func stream(_ s: SCStream, didOutputSampleBuffer sb: CMSampleBuffer, of type: SCStreamOutputType) {
-        guard type == .audio, sb.isValid else { return }
+    // MARK: the tap
+
+    @available(macOS 14.2, *)
+    private func startTap() -> Bool {
+        let desc = CATapDescription(stereoGlobalTapButExcludeProcesses: [])
+        desc.name = "Spindle"
+        desc.uuid = UUID()
+        desc.isPrivate = true
+        desc.muteBehavior = .unmuted                      // the music keeps playing normally
+
+        var tap = AudioObjectID(kAudioObjectUnknown)
+        guard AudioHardwareCreateProcessTap(desc, &tap) == noErr else { return false }
+        guard let outputUID = Self.defaultOutputUID() else {
+            AudioHardwareDestroyProcessTap(tap)
+            return false
+        }
+        let description: [String: Any] = [
+            kAudioAggregateDeviceNameKey: "Spindle Audio Tap",
+            kAudioAggregateDeviceUIDKey: UUID().uuidString,
+            kAudioAggregateDeviceMainSubDeviceKey: outputUID,
+            kAudioAggregateDeviceIsPrivateKey: true,
+            kAudioAggregateDeviceIsStackedKey: false,
+            kAudioAggregateDeviceTapAutoStartKey: true,
+            kAudioAggregateDeviceSubDeviceListKey: [[kAudioSubDeviceUIDKey: outputUID]],
+            kAudioAggregateDeviceTapListKey: [[kAudioSubTapDriftCompensationKey: true,
+                                               kAudioSubTapUIDKey: desc.uuid.uuidString]]
+        ]
+        var agg = AudioObjectID(kAudioObjectUnknown)
+        guard AudioHardwareCreateAggregateDevice(description as CFDictionary, &agg) == noErr else {
+            AudioHardwareDestroyProcessTap(tap)
+            return false
+        }
+        var proc: AudioDeviceIOProcID?
+        let made = AudioDeviceCreateIOProcIDWithBlock(&proc, agg, ioQueue) { [weak self] _, input, _, _, _ in
+            self?.handle(input)
+        }
+        guard made == noErr, let proc, AudioDeviceStart(agg, proc) == noErr else {
+            AudioHardwareDestroyAggregateDevice(agg)
+            AudioHardwareDestroyProcessTap(tap)
+            return false
+        }
+        tapID = tap
+        aggregateID = agg
+        procID = proc
+        return true
+    }
+
+    private static func defaultOutputUID() -> String? {
+        var device = AudioDeviceID(0)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+                                                 mScope: kAudioObjectPropertyScopeGlobal,
+                                                 mElement: kAudioObjectPropertyElementMain)
+        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &device) == noErr else { return nil }
+        var uid: Unmanaged<CFString>?
+        var uidSize = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        var uidAddress = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyDeviceUID,
+                                                    mScope: kAudioObjectPropertyScopeGlobal,
+                                                    mElement: kAudioObjectPropertyElementMain)
+        guard AudioObjectGetPropertyData(device, &uidAddress, 0, nil, &uidSize, &uid) == noErr, let value = uid else { return nil }
+        return value.takeRetainedValue() as String
+    }
+
+    /// The tap is tied to the output device that was current when it was made, so plugging in headphones means
+    /// building it again.
+    private func listenForOutputChanges() {
+        guard !listening else { return }
+        listening = true
+        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+                                                 mScope: kAudioObjectPropertyScopeGlobal,
+                                                 mElement: kAudioObjectPropertyElementMain)
+        AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address, DispatchQueue.main) { [weak self] _, _ in
+            guard let self, self.running else { return }
+            self.stop()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { self.refreshState() }
+        }
+    }
+
+    // MARK: analysis (runs on the audio queue)
+
+    private func handle(_ list: UnsafePointer<AudioBufferList>) {
+        let abl = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: list))
+        guard let first = abl.first, let raw = first.mData else { return }
+        let channels = max(Int(first.mNumberChannels), 1)
+        let frames = Int(first.mDataByteSize) / (MemoryLayout<Float>.size * channels)
+        guard frames > 0 else { return }
+        let p = raw.assumingMemoryBound(to: Float.self)
+        var peak: Float = 0
+        for i in 0..<frames {
+            let sample = p[i * channels]                   // left channel is enough for a beat
+            ring.append(sample)
+            peak = max(peak, abs(sample))
+        }
+        if ring.count > 4096 { ring.removeFirst(ring.count - 2048) }
+
         let now = Date()
-        guard now.timeIntervalSince(lastPublish) >= 0.05 else { return }   // at most 20 updates a second
+        if peak > 0.0001 { silentSince = nil } else if silentSince == nil { silentSince = now }
+        guard now.timeIntervalSince(lastPublish) >= 0.05, ring.count >= 1024 else { return }
         lastPublish = now
-
-        var bandVals: [Float] = []
-        try? sb.withAudioBufferList { abl, _ in
-            for buf in abl {
-                guard bandVals.isEmpty, let p = buf.mData?.assumingMemoryBound(to: Float.self) else { continue }
-                let n = Int(buf.mDataByteSize) / MemoryLayout<Float>.size
-                guard n > 0 else { continue }
-                bandVals = self.spectrum(p, n)
-            }
-        }
-
-        let bandSample = bandVals
-        DispatchQueue.main.async {
-            let set = SettingsStore.shared
-            self.lastSample = Date()
-            guard bandSample.count == 8 else { return }
-            var next = self.bands
-            for b in 0..<8 {
-                let v = min(1, Double(bandSample[b]) * set.eqSensitivity)
-                next[b] = v > next[b] ? v : next[b] * 0.82 + v * 0.18
-            }
-            self.bands = next                                   // one change notification, not eight
-
-            // Beat: the bass rising above its own recent average. That is what puts the glow on the
-            // kick drum instead of on a fixed tempo.
-            let low = Double(bandSample[0])
-            self.energy.append(low)
-            if self.energy.count > 43 { self.energy.removeFirst() }         // about 2 s of history
-            let avg = self.energy.reduce(0, +) / Double(self.energy.count)
-            let now = Date()
-            if low > max(avg * 1.4, 0.15), now.timeIntervalSince(self.lastBeat) > 0.22 {
-                self.lastBeat = now
-                self.level = 1
-            } else {
-                self.level *= 0.82                                          // fast attack, ~0.5 s fade
-            }
-        }
+        let tail = Array(ring.suffix(1024))
+        let bandVals: [Float] = tail.withUnsafeBufferPointer { spectrum($0.baseAddress!, 1024) }
+        let silent = silentSince
+        DispatchQueue.main.async { self.publish(bandVals, silentSince: silent) }
     }
 
-    func stream(_ s: SCStream, didStopWithError error: Error) {}
+    private func publish(_ bandSample: [Float], silentSince: Date?) {
+        let set = SettingsStore.shared
+        let now = Date()
+        let silentFor: Double = silentSince.map { now.timeIntervalSince($0) } ?? 0
+        if silentFor < 1 { lastSample = now }                          // real sound: the bars may follow it
+        if silentFor > 8, hasMusic {
+            if !needsPermission { needsPermission = true }             // music is playing but nothing is heard
+        } else if silentSince == nil, needsPermission {
+            needsPermission = false
+        }
+        guard bandSample.count == 8 else { return }
+        var next = bands
+        for b in 0..<8 {
+            let v = min(1, Double(bandSample[b]) * set.eqSensitivity)
+            next[b] = v > next[b] ? v : next[b] * 0.82 + v * 0.18
+        }
+        bands = next                                                   // one change notification, not eight
+
+        // Beat: the bass rising above its own recent average. That puts the glow on the kick drum.
+        let low = Double(bandSample[0])
+        energy.append(low)
+        if energy.count > 43 { energy.removeFirst() }                  // about 2 s of history
+        let avg = energy.reduce(0, +) / Double(energy.count)
+        if low > max(avg * 1.4, 0.15), now.timeIntervalSince(lastBeat) > 0.22 {
+            lastBeat = now
+            level = 1
+        } else {
+            level *= 0.82                                              // fast attack, ~0.5 s fade
+        }
+    }
 
     /// 8 frequency bands (low to high) from 1024 samples, using a Fourier transform.
     func spectrum(_ p: UnsafePointer<Float>, _ n: Int) -> [Float] {

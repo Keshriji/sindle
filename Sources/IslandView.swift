@@ -2,12 +2,18 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 
-enum Page: Int, CaseIterable {
-    case player, lyrics, weather, calendar, status, tray, notes, tasks, clock, wallpapers, typing, diary, mirror, mini
-    static let main: [Page] = [.player, .lyrics, .weather, .calendar, .status]
-    static let tools: [Page] = [.tray, .notes, .tasks, .clock, .wallpapers, .typing, .diary, .mirror, .mini]
-    var isTool: Bool { Page.tools.contains(self) }
-    var icon: String { ["music.note", "text.quote", "cloud.sun.fill", "calendar", "headphones", "tray.full", "note.text", "checklist", "alarm", "photo.on.rectangle", "keyboard", "chart.bar.fill", "camera.fill", "square.grid.2x2"][rawValue] }
+/// The icons down the right edge of the wide dashboard. Each one swaps what the right-hand column shows.
+enum RailItem: CaseIterable, Identifiable {
+    case weather, calendar, clock, tasks, notes, status, diary, typing, wallpapers, mini
+    var id: Self { self }
+    var icon: String {
+        switch self {
+        case .weather: return "cloud.sun.fill"; case .calendar: return "calendar"; case .clock: return "timer"
+        case .tasks: return "checklist"; case .notes: return "note.text"; case .status: return "headphones"
+        case .diary: return "chart.bar.fill"; case .typing: return "keyboard"; case .wallpapers: return "photo.on.rectangle"
+        case .mini: return "square.grid.2x2"
+        }
+    }
 }
 
 struct IslandView: View {
@@ -25,18 +31,22 @@ struct IslandView: View {
     @State private var spin = false
     @State private var peek = false
     @State private var coverBump = false
-    @State private var page = Page.player
+    @State private var expanded = false        // false: the compact card, true: the wide dashboard
+    @State private var cardPage = 0            // compact card pages: 0 music, 1 weather, 2 mirror
+    @State private var tab = 0                 // dashboard tabs: 0 Now, 1 Tray
+    @State private var rail = RailItem.weather
+    @State private var mirrorOn = false
     @State private var scrollMonitor: Any?
     @State private var lastStep = Date.distantPast
 
     private var w: CGFloat {
-        if open { return settings.bigIsland ? 500 : 380 }
+        if open { return expanded ? 660 : 420 }
         if peek { return 310 }
         let n = IslandPanel.notchWidth                    // wings sit either side of the camera housing
         if let t = status.toast { return n + (t.battery != nil || t.level != nil ? 130 : 230) }
         return player.track == nil ? n : n + 110
     }
-    private var h: CGFloat { open ? (settings.bigIsland ? 210 : 160) : (peek ? 72 : 34) }
+    private var h: CGFloat { open ? (expanded ? 226 : 152) : (peek ? 72 : 34) }
     private var radius: CGFloat { (open || peek) ? 28 : 14 }
     private var glassMaterial: Material { [Material.ultraThinMaterial, .thinMaterial, .regularMaterial, .thickMaterial][min(max(settings.glassMaterial, 0), 3)] }
     private var spring: Animation { .spring(response: 0.42 / settings.animSpeed, dampingFraction: 0.74) }
@@ -45,16 +55,32 @@ struct IslandView: View {
         VStack(spacing: 0) {
             ZStack(alignment: .top) {
                 Group {
-                    if settings.glassStyle {
+                    if open {
+                        // The open island is frosted glass: wallpaper shows through, with a bright rim.
+                        Rectangle().fill(.ultraThinMaterial)
+                            .overlay(LinearGradient(colors: [.white.opacity(0.16), .white.opacity(0.03), .black.opacity(0.22)],
+                                                    startPoint: .top, endPoint: .bottom))
+                            .environment(\.colorScheme, .dark)
+                    } else if settings.glassStyle {
                         Rectangle().fill(glassMaterial).overlay(Color.black.opacity(settings.glassTint)).environment(\.colorScheme, .dark)
                     } else { Rectangle().fill(.black) }
                 }
-                content.padding(.horizontal, open ? 18 : 12).padding(.top, open ? 12 : 0)
+                content.padding(.horizontal, open ? 0 : 12)
             }
             .frame(width: w, height: h)
             .clipShape(UnevenRoundedRectangle(topLeadingRadius: settings.floatingIsland ? radius : 0,
                                               bottomLeadingRadius: radius, bottomTrailingRadius: radius,
                                               topTrailingRadius: settings.floatingIsland ? radius : 0))
+            .overlay {
+                if open {
+                    UnevenRoundedRectangle(topLeadingRadius: settings.floatingIsland ? radius : 0,
+                                           bottomLeadingRadius: radius, bottomTrailingRadius: radius,
+                                           topTrailingRadius: settings.floatingIsland ? radius : 0)
+                        .strokeBorder(LinearGradient(colors: [.white.opacity(0.5), .white.opacity(0.08), .white.opacity(0.3)],
+                                                     startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1)
+                        .allowsHitTesting(false)
+                }
+            }
             .offset(y: settings.floatingIsland ? 10 : 0)
             .scaleEffect(settings.islandScale, anchor: .top)
             .opacity(settings.hideWhenIdle && player.track == nil && status.toast == nil && !open ? 0.0 : 1.0)
@@ -67,7 +93,7 @@ struct IslandView: View {
                 return true
             }
             .onChange(of: dropping) { _, over in
-                if over { withAnimation(spring) { open = true; page = .tray } }
+                if over { withAnimation(spring) { open = true; expanded = true; tab = 1 } }
             }
             .onHover { hovering in
                 if settings.openOnClick {
@@ -93,8 +119,10 @@ struct IslandView: View {
         .animation(spring, value: status.toast)
         .onChange(of: open) { _, o in
             if o {
+                expanded = settings.bigIsland; tab = 0; cardPage = 0
                 watchOpenIsland()
             } else {
+                mirrorOn = false                 // the camera goes off as soon as the island closes
                 face.lock()
                 if !peek { stopWatching() }
             }
@@ -176,43 +204,328 @@ struct IslandView: View {
         if settings.faceLockOn && !face.unlocked { LockedPage(face: face) } else { v }
     }
 
+    /// A swipe moves between the compact card's pages, or down the dashboard's icon rail.
     private func step(_ d: Int) {
-        let n = max(0, min(Page.allCases.count - 1, page.rawValue + d))
-        withAnimation(spring) { page = Page(rawValue: n)! }
+        if expanded {
+            let all = RailItem.allCases
+            guard let i = all.firstIndex(of: rail) else { return }
+            let n = max(0, min(all.count - 1, i + d))
+            withAnimation(spring) { rail = all[n] }
+        } else {
+            withAnimation(spring) { cardPage = max(0, min(2, cardPage + d)) }
+        }
     }
 
     @ViewBuilder private var content: some View {
         if open {
             let t = player.track ?? Track(title: "Nothing playing")
-            VStack(spacing: 8) {
-                ZStack {
-                    switch page {
-                    case .player:  playerPage(t)
-                    case .lyrics:  lyricsPage(t)
-                    case .weather: weatherPage
-                    case .calendar: CalendarPage()
-                    case .status:  statusPage
-                    case .tray:    gate(TrayPage(tray: tools.tray))
-                    case .notes:   gate(NotesPage(notes: tools.notes))
-                    case .tasks:   gate(TasksPage(tasks: tools.tasks))
-                    case .clock:   ClockPage(clock: tools.clock)
-                    case .wallpapers: WallpapersPage()
-                    case .typing:  TypingPage(typing: tools.typing)
-                    case .diary:   gate(DiaryPage(diary: tools.diary))
-                    case .mirror:  MirrorPage()
-                    case .mini:    MiniAppsPage(mini: tools.mini)
-                    }
-                }
-                .transition(.opacity.combined(with: .scale(scale: 0.96)))
-                .frame(maxHeight: .infinity)
-                tabs
-            }.padding(.bottom, 8)
+            if expanded { dashboard(t) } else { compactCard(t) }
         } else if peek, let t = player.track {
             peekView(t)
         } else if let toast = status.toast {
             toastView(toast)
         } else if let t = player.track {
             compact(t)
+        }
+    }
+
+    // MARK: the compact card (open, not expanded)
+
+    private func iconButton(_ name: String, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: name).font(.system(size: 12, weight: .semibold)).foregroundStyle(.white.opacity(0.9))
+                .frame(width: 26, height: 26).background(Circle().fill(.white.opacity(0.14)))
+        }
+        .buttonStyle(PressScale())
+    }
+
+    private func cover(_ t: Track, _ size: CGFloat) -> some View {
+        Group {
+            if settings.turntable {
+                TurntableView(url: t.artworkURL, size: size, playing: t.isPlaying)
+            } else {
+                AsyncImage(url: t.artworkURL) { $0.resizable().scaledToFill() }
+                    placeholder: { Color.gray.opacity(0.3).overlay(reel(size * 0.5)) }
+                    .frame(width: size, height: size).clipShape(RoundedRectangle(cornerRadius: size * 0.18))
+            }
+        }
+        .scaleEffect(coverBump ? 1.08 : 1).animation(.spring(response: 0.3, dampingFraction: 0.5), value: coverBump)
+    }
+
+    private func pauseButton(_ t: Track) -> some View {
+        Button { player.send("playpause") } label: {
+            Image(systemName: t.isPlaying ? "pause.fill" : "play.fill").font(.system(size: 26)).foregroundStyle(.white)
+                .frame(width: 34, height: 30)
+        }
+        .buttonStyle(PressScale())
+    }
+
+    private func notchTime(_ s: Double) -> String {
+        let v = Int(max(0, s))
+        return String(format: "%d:%02d", v / 60, v % 60)
+    }
+
+    /// Elapsed time, a bar, and the length: the bar glides because it is drawn four times a second from the last reading.
+    private func progressRow(_ t: Track) -> some View {
+        TimelineView(.periodic(from: .now, by: 0.25)) { tl in
+            let since: Double = t.isPlaying ? tl.date.timeIntervalSince(t.polledAt) : 0
+            let pos: Double = min(t.duration, t.position + since)
+            let frac: CGFloat = CGFloat(min(1.0, pos / max(t.duration, 1)))
+            HStack(spacing: 8) {
+                Text(notchTime(pos)).font(.system(size: 11)).monospacedDigit().foregroundStyle(.white.opacity(0.7))
+                GeometryReader { g in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(.white.opacity(0.22))
+                        Capsule().fill(.white.opacity(0.92)).frame(width: g.size.width * frac)
+                    }
+                }
+                .frame(height: 4)
+                Text(notchTime(t.duration)).font(.system(size: 11)).monospacedDigit().foregroundStyle(.white.opacity(0.7))
+            }
+        }
+    }
+
+    private func eqView(_ t: Track) -> some View {
+        Group {
+            if settings.eqOn {
+                EqualizerBars(audio: audio, playing: t.isPlaying, count: settings.eqBars, rainbow: settings.eqColorMode == 1, gain: settings.eqSensitivity)
+            }
+        }
+    }
+
+    private func controls(_ t: Track, spacing: CGFloat) -> some View {
+        HStack(spacing: spacing) {
+            ctl("backward.fill", "previous track")
+            pauseButton(t)
+            ctl("forward.fill", "next track")
+        }
+    }
+
+    private func compactCard(_ t: Track) -> some View {
+        VStack(spacing: 0) {
+            HStack {
+                HStack(spacing: 5) {
+                    ForEach(0..<3, id: \.self) { i in
+                        Capsule().fill(.white.opacity(cardPage == i ? 0.95 : 0.35))
+                            .frame(width: cardPage == i ? 18 : 6, height: 6)
+                            .onTapGesture { withAnimation(spring) { cardPage = i } }
+                    }
+                }
+                Spacer()
+                iconButton("arrow.up.left.and.arrow.down.right") { withAnimation(spring) { expanded = true } }
+            }
+            .padding(.horizontal, 14).padding(.top, 8).frame(height: 30)
+
+            Group {
+                switch cardPage {
+                case 1:  weatherMini
+                case 2:  MirrorPage()
+                default: musicMini(t)
+                }
+            }
+            .padding(.horizontal, 20).padding(.bottom, 12)
+            .frame(maxHeight: .infinity)
+        }
+    }
+
+    private func musicMini(_ t: Track) -> some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 12) {
+                cover(t, 54)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(t.title).font(.system(size: 16, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
+                    Text(t.artist).font(.system(size: 13)).foregroundStyle(.white.opacity(0.65)).lineLimit(1)
+                }
+                Spacer()
+                eqView(t)
+            }
+            progressRow(t)
+            ZStack {
+                controls(t, spacing: 36)
+                HStack {
+                    Spacer()
+                    Button { withAnimation(spring) { expanded = true } } label: {
+                        Image(systemName: "laptopcomputer").font(.system(size: 15)).foregroundStyle(.white.opacity(0.75))
+                    }.buttonStyle(PressScale())
+                }
+            }
+        }
+    }
+
+    private var weatherMini: some View {
+        HStack(spacing: 14) {
+            Image(systemName: weather.symbol).symbolRenderingMode(.multicolor).font(.system(size: 42))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(weather.now.map { "\(settings.temp($0))°" } ?? "–").font(.system(size: 34, weight: .bold)).foregroundStyle(.white)
+                Text(weather.now == nil ? (weather.error ?? "Loading…") : weather.rainNote)
+                    .font(.system(size: 12)).foregroundStyle(.white.opacity(0.7))
+            }
+            Spacer()
+            VStack(alignment: .trailing, spacing: 2) {
+                if let hi = weather.high, let lo = weather.low {
+                    Text("↑\(settings.temp(hi))°  ↓\(settings.temp(lo))°").font(.system(size: 13, weight: .medium)).foregroundStyle(.white)
+                }
+                if let place = weather.place { Text(place).font(.system(size: 12)).foregroundStyle(.white.opacity(0.6)) }
+            }
+        }
+    }
+
+    // MARK: the wide dashboard (open and expanded)
+
+    private func tabPill(_ label: String, _ icon: String, _ index: Int) -> some View {
+        Button { withAnimation(spring) { tab = index } } label: {
+            HStack(spacing: 5) {
+                Image(systemName: icon).font(.system(size: 12))
+                Text(label).font(.system(size: 13, weight: .semibold))
+            }
+            .foregroundStyle(.white.opacity(tab == index ? 1 : 0.6))
+            .padding(.horizontal, 11).padding(.vertical, 5)
+            .background(Capsule().fill(.white.opacity(tab == index ? 0.22 : 0)))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var columnDivider: some View {
+        Rectangle().fill(.white.opacity(0.12)).frame(width: 1).padding(.vertical, 8)
+    }
+
+    private func dashboard(_ t: Track) -> some View {
+        VStack(spacing: 4) {
+            HStack(spacing: 8) {
+                tabPill("Now", "house.fill", 0)
+                tabPill("Tray", "tray.fill", 1)
+                Spacer()
+                iconButton(pinned ? "pin.fill" : "pin") { settings.keepOpen.toggle() }
+                iconButton("arrow.down.right.and.arrow.up.left") { withAnimation(spring) { expanded = false } }
+            }
+            .padding(.horizontal, 14).padding(.top, 8).frame(height: 32)
+
+            if tab == 0 {
+                HStack(spacing: 0) {
+                    musicColumn(t).frame(width: 256)
+                    columnDivider
+                    mirrorColumn.frame(width: 150)
+                    columnDivider
+                    railContent
+                        .padding(.horizontal, 12)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    railBar
+                }
+                .padding(.horizontal, 6).padding(.bottom, 10)
+            } else {
+                gate(TrayPage(tray: tools.tray)).padding(.horizontal, 18).padding(.bottom, 12)
+            }
+        }
+    }
+
+    private func musicColumn(_ t: Track) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                cover(t, 70)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(t.title).font(.system(size: 17, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
+                    Text(t.artist).font(.system(size: 13)).foregroundStyle(.white.opacity(0.65)).lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                eqView(t)
+            }
+            HStack(spacing: 22) {
+                controls(t, spacing: 24)
+                LikeButton(diary: tools.diary, track: t)
+            }
+            .padding(.leading, 80)
+            progressRow(t)
+        }
+        .padding(.horizontal, 12)
+        .frame(maxHeight: .infinity)
+    }
+
+    /// The round Mirror button: tap it and the camera appears inside the circle; tap again to switch it off.
+    private var mirrorColumn: some View {
+        Button { withAnimation(spring) { mirrorOn.toggle() } } label: {
+            ZStack {
+                Circle().fill(.white.opacity(0.10))
+                if mirrorOn {
+                    MirrorCircle().clipShape(Circle()).padding(3)
+                } else {
+                    VStack(spacing: 6) {
+                        Image(systemName: "web.camera").font(.system(size: 24))
+                        Text("Mirror").font(.system(size: 13, weight: .semibold))
+                    }
+                    .foregroundStyle(.white.opacity(0.85))
+                }
+                Circle().strokeBorder(.white.opacity(0.28), lineWidth: 1)
+            }
+            .frame(width: 106, height: 106)
+        }
+        .buttonStyle(PressScale())
+        .frame(maxHeight: .infinity)
+    }
+
+    @ViewBuilder private var railContent: some View {
+        switch rail {
+        case .weather:    weatherCard
+        case .calendar:   CalendarPage()
+        case .clock:      ClockPage(clock: tools.clock)
+        case .tasks:      gate(TasksPage(tasks: tools.tasks))
+        case .notes:      gate(NotesPage(notes: tools.notes))
+        case .status:     statusPage
+        case .diary:      gate(DiaryPage(diary: tools.diary))
+        case .typing:     TypingPage(typing: tools.typing)
+        case .wallpapers: WallpapersPage()
+        case .mini:       MiniAppsPage(mini: tools.mini)
+        }
+    }
+
+    private var railBar: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(spacing: 6) {
+                ForEach(RailItem.allCases) { item in
+                    Button { withAnimation(spring) { rail = item } } label: {
+                        Image(systemName: item.icon).font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.white.opacity(rail == item ? 1 : 0.6))
+                            .frame(width: 30, height: 28)
+                            .background(RoundedRectangle(cornerRadius: 8).fill(.white.opacity(rail == item ? 0.22 : 0)))
+                    }
+                    .buttonStyle(PressScale())
+                }
+            }
+        }
+        .frame(width: 38)
+    }
+
+    private var placeSuffix: String {
+        guard let place = weather.place else { return "" }
+        return "  ·  " + place
+    }
+
+    /// Current weather, high and low, whether rain is coming, and the next six days.
+    private var weatherCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Image(systemName: weather.symbol).symbolRenderingMode(.multicolor).font(.system(size: 34))
+                Text(weather.now.map { "\(settings.temp($0))°" } ?? "–").font(.system(size: 30, weight: .bold)).foregroundStyle(.white)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(weather.now == nil ? (weather.error ?? "Loading…") : weather.rainNote)
+                        .font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+                    if let hi = weather.high, let lo = weather.low {
+                        Text("↑\(settings.temp(hi))°  ↓\(settings.temp(lo))°\(placeSuffix)")
+                            .font(.system(size: 11)).foregroundStyle(.white.opacity(0.65)).lineLimit(1)
+                    }
+                }
+            }
+            HStack(spacing: 0) {
+                ForEach(weather.daily) { d in
+                    VStack(spacing: 4) {
+                        Text("\(d.id)").font(.system(size: 11)).foregroundStyle(.white.opacity(0.65))
+                        Image(systemName: d.symbol).symbolRenderingMode(.multicolor).font(.system(size: 17))
+                        Text("\(settings.temp(d.high))°").font(.system(size: 12, weight: .bold)).foregroundStyle(.white)
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+            }
+            Text("Weather: MET Norway").font(.system(size: 9)).foregroundStyle(.white.opacity(0.4))
+                .frame(maxWidth: .infinity, alignment: .trailing)
         }
     }
 
@@ -289,81 +602,6 @@ struct IslandView: View {
         .frame(height: 34)
     }
 
-    private func playerPage(_ t: Track) -> some View {
-        VStack(spacing: 10) {
-            HStack(spacing: 12) {
-                Group {
-                    if settings.turntable {
-                        TurntableView(url: t.artworkURL, size: 54, playing: t.isPlaying)
-                    } else {
-                        AsyncImage(url: t.artworkURL) { $0.resizable().scaledToFill() }
-                            placeholder: { Color.gray.opacity(0.3).overlay(reel(26)) }
-                            .frame(width: 54, height: 54).clipShape(RoundedRectangle(cornerRadius: 10))
-                    }
-                }
-                .scaleEffect(coverBump ? 1.12 : 1).animation(.spring(response: 0.3, dampingFraction: 0.5), value: coverBump)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(t.title).font(.system(size: 14, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
-                    Text(t.artist).font(.system(size: 12)).foregroundStyle(.white.opacity(0.6)).lineLimit(1)
-                }
-                Spacer()
-                if settings.eqOn {
-                    EqualizerBars(audio: audio, playing: t.isPlaying, count: settings.eqBars, rainbow: settings.eqColorMode == 1, gain: settings.eqSensitivity)
-                }
-            }
-            ProgressView(value: min(t.position / t.duration, 1)).tint(.white)
-                .animation(.linear(duration: 1), value: t.position)
-            HStack(spacing: 28) {
-                ctl("backward.fill", "previous track")
-                ctl("playpause.fill", "playpause")
-                ctl("forward.fill", "next track")
-                Spacer(minLength: 0)
-                LikeButton(diary: tools.diary, track: t)
-            }
-        }
-    }
-
-    private func lyricsPage(_ t: Track) -> some View {
-        let i = lyrics.index(at: t.position)
-        let cur = i.map { lyrics.lines[$0].s } ?? (lyrics.lines.isEmpty ? "No synced lyrics found" : "…")
-        let next = i.flatMap { $0 + 1 < lyrics.lines.count ? lyrics.lines[$0 + 1].s : nil } ?? ""
-        return VStack(spacing: 6) {
-            Text(cur.isEmpty ? "♪" : cur)
-                .font(.system(size: 18, weight: .bold)).foregroundStyle(.white)
-                .multilineTextAlignment(.center).lineLimit(2)
-                .id(i ?? -1)
-                .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity),
-                                        removal: .move(edge: .top).combined(with: .opacity)))
-            Text(next).font(.system(size: 12)).foregroundStyle(.white.opacity(0.4)).lineLimit(1)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .animation(.easeInOut(duration: 0.35), value: i)
-    }
-
-    private var weatherPage: some View {
-        VStack(spacing: 10) {
-            VStack(spacing: 2) {
-                Text(weather.now.map { "\(settings.temp($0))°" } ?? "–")
-                    .font(.system(size: 32, weight: .semibold)).foregroundStyle(.white)
-                if let place = weather.place {
-                    Text(place).font(.system(size: 10)).foregroundStyle(.white.opacity(0.5))
-                }
-                if weather.now == nil {
-                    Text(weather.error ?? "Loading…").font(.system(size: 10)).foregroundStyle(.orange)
-                }
-            }
-            HStack {
-                ForEach(weather.hours) { h in
-                    VStack(spacing: 2) {
-                        Text("\(settings.temp(h.temp))°").font(.system(size: 12, weight: .medium)).foregroundStyle(.white)
-                        Text(h.hour).font(.system(size: 10)).foregroundStyle(.white.opacity(0.5))
-                    }.frame(maxWidth: .infinity)
-                }
-            }
-            Text("Weather: MET Norway").font(.system(size: 9)).foregroundStyle(.white.opacity(0.35))
-        }
-    }
-
     private var statusPage: some View {
         VStack(spacing: 10) {
             if let h = status.headphones {
@@ -416,27 +654,5 @@ struct IslandView: View {
     // MARK: controls
     private func ctl(_ icon: String, _ cmd: String) -> some View {
         Button { player.send(cmd) } label: { Image(systemName: icon).foregroundStyle(.white) }.buttonStyle(PressScale())
-    }
-
-    private var tabs: some View {
-        HStack(spacing: 14) {
-            Button { settings.keepOpen.toggle() } label: {
-                Image(systemName: pinned ? "pin.fill" : "pin").font(.system(size: 10))
-                    .foregroundStyle(.white.opacity(pinned ? 1 : 0.35))
-            }.buttonStyle(.plain)
-            if page.isTool { tabButton("chevron.left", on: false) { page = .player } }
-            ForEach(page.isTool ? Page.tools : Page.main, id: \.self) { p in
-                tabButton(p.icon, on: page == p) { page = p }
-            }
-            if !page.isTool { tabButton("square.grid.2x2", on: false) { page = .tray } }   // opens the tools row
-        }
-    }
-
-    private func tabButton(_ icon: String, on: Bool, _ action: @escaping () -> Void) -> some View {
-        Button { withAnimation(spring) { action() } } label: {
-            Image(systemName: icon).font(.system(size: 11))
-                .foregroundStyle(.white.opacity(on ? 1 : 0.4))
-                .scaleEffect(on ? 1.2 : 1)
-        }.buttonStyle(.plain)
     }
 }
