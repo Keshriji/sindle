@@ -40,7 +40,14 @@ final class StatusStore: ObservableObject {
     }
 
     func show(_ t: Toast, seconds: Double = 3) {
-        guard !quiet, SettingsStore.shared.toastsOn else { return }
+        let set = SettingsStore.shared
+        guard !quiet, set.toastsOn else { return }
+        switch t.icon {
+        case "headphones":             guard set.toastHeadphones else { return }
+        case "bolt.fill", "battery.50": guard set.toastCharging else { return }
+        case "moon.fill":              guard set.toastFocus else { return }
+        default:                       if t.level != nil { guard set.toastVolume else { return } }
+        }
         toastWork?.cancel()
         toast = t
         let w = DispatchWorkItem { [weak self] in self?.toast = nil }

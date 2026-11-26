@@ -30,6 +30,7 @@ final class MirrorNSView: NSView {
             run()
         case .notDetermined:
             onStatus("Allow camera access…")
+            NSApp.activate(ignoringOtherApps: true)          // an accessory app's permission prompt only appears when it is frontmost
             AVCaptureDevice.requestAccess(for: .video) { ok in
                 DispatchQueue.main.async {
                     if ok { self.run() } else { self.onStatus("Camera access is off. Turn it on under Privacy and Permissions.") }

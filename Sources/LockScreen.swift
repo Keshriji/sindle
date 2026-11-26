@@ -125,7 +125,7 @@ struct LockScreenView: View {
                 cover(m, mode).opacity(full ? 0 : 1)
                 lyricsColumn(m, mode).opacity(full ? 0 : 1).zIndex(1)
                 if full { stage(m).zIndex(2) }                         // Aura and Stars fill the whole screen
-                if s.glowOn {
+                if s.glowOn && s.glowOnLock {
                     LockBeatGlow(audio: audio, tint: tint, playing: track?.isPlaying ?? false).zIndex(5)
                 }
                 card(m, mode).zIndex(10)      // always above the lyrics, whatever the lyric style

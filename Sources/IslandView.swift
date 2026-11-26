@@ -6,6 +6,15 @@ import UniformTypeIdentifiers
 enum RailItem: CaseIterable, Identifiable {
     case weather, calendar, clock, tasks, notes, status, diary, typing, wallpapers, mini
     var id: Self { self }
+    var key: String { String(describing: self) }
+    var title: String {
+        switch self {
+        case .weather: return "Weather"; case .calendar: return "Calendar"; case .clock: return "Timer"
+        case .tasks: return "Tasks"; case .notes: return "Notes"; case .status: return "Headphones"
+        case .diary: return "Listening diary"; case .typing: return "Typing speed"; case .wallpapers: return "Wallpapers"
+        case .mini: return "Mini apps"
+        }
+    }
     var icon: String {
         switch self {
         case .weather: return "cloud.sun.fill"; case .calendar: return "calendar"; case .clock: return "timer"
@@ -36,6 +45,8 @@ struct IslandView: View {
     @State private var tab = 0                 // dashboard tabs: 0 Now, 1 Tray
     @State private var rail = RailItem.weather
     @State private var mirrorOn = false
+    @State private var hoverIntent: DispatchWorkItem?
+    @State private var dropIntent: DispatchWorkItem?
     @State private var scrollMonitor: Any?
     @State private var lastStep = Date.distantPast
 
@@ -93,18 +104,33 @@ struct IslandView: View {
                 return true
             }
             .onChange(of: dropping) { _, over in
-                if over { withAnimation(spring) { open = true; expanded = true; tab = 1 } }
+                dropIntent?.cancel()
+                guard over else { return }
+                // A file has to stay over the island a moment before the tray opens.
+                let work = DispatchWorkItem {
+                    if dropping { withAnimation(spring) { open = true; expanded = true; tab = 1 } }
+                }
+                dropIntent = work
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.45, execute: work)
             }
             .onHover { hovering in
-                if settings.openOnClick {
-                    withAnimation(spring) {
-                        if !hovering && !pinned { open = false }
-                        peek = hovering && !open && player.track != nil
-                    }
+                hoverIntent?.cancel()
+                if !hovering {
+                    if pinned { return }
+                    withAnimation(spring) { open = false; peek = false }
                     return
                 }
-                if !hovering && pinned { return }
-                withAnimation(spring) { open = hovering }
+                // Moving a window or dragging a file across the top of the screen must not open the island,
+                // and neither should the pointer merely passing by: it has to rest here for a moment.
+                guard NSEvent.pressedMouseButtons == 0 else { return }
+                let work = DispatchWorkItem {
+                    guard NSEvent.pressedMouseButtons == 0 else { return }
+                    withAnimation(spring) {
+                        if settings.openOnClick { peek = !open && player.track != nil } else { open = true }
+                    }
+                }
+                hoverIntent = work
+                DispatchQueue.main.asyncAfter(deadline: .now() + (open ? 0 : 0.16), execute: work)
             }
             .onTapGesture {
                 if settings.openOnClick && !open { withAnimation(spring) { open = true; peek = false } }
@@ -130,8 +156,10 @@ struct IslandView: View {
         .onChange(of: peek) { _, v in
             if v { watchOpenIsland() } else if !open { stopWatching() }
         }
+        .onChange(of: panelSize) { _, size in IslandPanel.current?.fit(width: size.width, height: size.height) }
         .onDisappear { stopWatching(); stopScroll() }
         .onAppear {
+            IslandPanel.current?.fit(width: panelSize.width, height: panelSize.height)
             withAnimation(.linear(duration: 4).repeatForever(autoreverses: false)) { spin = true }
             startScroll()
         }
@@ -140,6 +168,11 @@ struct IslandView: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { coverBump = false }
             if let t = player.track { lyrics.load(title: t.title, artist: t.artist) }
         }
+    }
+
+    /// How big the island is on screen right now; the window is resized to match.
+    private var panelSize: CGSize {
+        CGSize(width: w * settings.islandScale, height: (h + (settings.floatingIsland ? 10 : 0)) * settings.islandScale)
     }
 
     // MARK: keep the island from hanging open
@@ -207,7 +240,7 @@ struct IslandView: View {
     /// A swipe moves between the compact card's pages, or down the dashboard's icon rail.
     private func step(_ d: Int) {
         if expanded {
-            let all = RailItem.allCases
+            let all = railItems
             guard let i = all.firstIndex(of: rail) else { return }
             let n = max(0, min(all.count - 1, i + d))
             withAnimation(spring) { rail = all[n] }
@@ -271,8 +304,9 @@ struct IslandView: View {
             let since: Double = t.isPlaying ? tl.date.timeIntervalSince(t.polledAt) : 0
             let pos: Double = min(t.duration, t.position + since)
             let frac: CGFloat = CGFloat(min(1.0, pos / max(t.duration, 1)))
+            let real: Bool = !t.source.isEmpty          // "Nothing playing" is a placeholder with no length
             HStack(spacing: 8) {
-                Text(notchTime(pos)).font(.system(size: 11)).monospacedDigit().foregroundStyle(.white.opacity(0.7))
+                Text(real ? notchTime(pos) : "–:––").font(.system(size: 11)).monospacedDigit().foregroundStyle(.white.opacity(0.7))
                 GeometryReader { g in
                     ZStack(alignment: .leading) {
                         Capsule().fill(.white.opacity(0.22))
@@ -280,7 +314,7 @@ struct IslandView: View {
                     }
                 }
                 .frame(height: 4)
-                Text(notchTime(t.duration)).font(.system(size: 11)).monospacedDigit().foregroundStyle(.white.opacity(0.7))
+                Text(real ? notchTime(t.duration) : "–:––").font(.system(size: 11)).monospacedDigit().foregroundStyle(.white.opacity(0.7))
             }
         }
     }
@@ -463,7 +497,7 @@ struct IslandView: View {
     }
 
     @ViewBuilder private var railContent: some View {
-        switch rail {
+        switch activeRail {
         case .weather:    weatherCard
         case .calendar:   CalendarPage()
         case .clock:      ClockPage(clock: tools.clock)
@@ -477,10 +511,17 @@ struct IslandView: View {
         }
     }
 
+    /// The dashboard icons that are switched on in Settings (never none, so there is always something to show).
+    private var railItems: [RailItem] {
+        let on = RailItem.allCases.filter { settings.railOn($0.key) }
+        return on.isEmpty ? [.weather] : on
+    }
+    private var activeRail: RailItem { railItems.contains(rail) ? rail : railItems[0] }
+
     private var railBar: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(spacing: 6) {
-                ForEach(RailItem.allCases) { item in
+                ForEach(railItems) { item in
                     Button { withAnimation(spring) { rail = item } } label: {
                         Image(systemName: item.icon).font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(.white.opacity(rail == item ? 1 : 0.6))

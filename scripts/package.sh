@@ -43,17 +43,17 @@ SIGN_KIND="adhoc"
 if [ "$SIGN_ID" = "-" ]; then
   echo "    ad-hoc: macOS sees a new code requirement on every launch, so Screen Recording"
   echo "    is granted again each time. Set SPINDLE_SIGN_IDENTITY to avoid that."
-  codesign --force --deep --sign - "$APP"
+  codesign --force --deep --sign - --entitlements Spindle.entitlements "$APP"
 else
   echo "    identity: $SIGN_ID"
-  SIGN_ARGS=(--force --deep --sign "$SIGN_ID" --identifier com.example.spindle --options runtime)
+  SIGN_ARGS=(--force --deep --sign "$SIGN_ID" --identifier com.example.spindle --options runtime --entitlements Spindle.entitlements)
   if [ -n "${SPINDLE_KEYCHAIN:-}" ]; then SIGN_ARGS+=(--keychain "$SPINDLE_KEYCHAIN"); fi
   if [ "${SPINDLE_TIMESTAMP:-0}" = "1" ]; then SIGN_ARGS+=(--timestamp); else SIGN_ARGS+=(--timestamp=none); fi
   if codesign "${SIGN_ARGS[@]}" "$APP"; then
     SIGN_KIND="identity"
   else
     echo "::warning::codesign with $SIGN_ID failed; falling back to ad-hoc signing"
-    codesign --force --deep --sign - "$APP"
+    codesign --force --deep --sign - --entitlements Spindle.entitlements "$APP"
     SIGN_KIND="adhoc-fallback"
   fi
 fi

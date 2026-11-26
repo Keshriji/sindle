@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- The app is signed with the hardened runtime. Under it macOS silently refuses each of these
+       unless it is listed here: no prompt appears, the feature just does not work. -->
+  <key>com.apple.security.device.camera</key><true/>                          <!-- Mirror, Face Unlock -->
+  <key>com.apple.security.device.audio-input</key><true/>                     <!-- equalizer and Beat Glow listening to system audio -->
+  <key>com.apple.security.automation.apple-events</key><true/>                <!-- Spotify, Music, Safari, Chrome now-playing and controls -->
+  <key>com.apple.security.personal-information.location</key><true/>          <!-- weather -->
+  <key>com.apple.security.personal-information.calendars</key><true/>         <!-- calendar page -->
+</dict>
+</plist>

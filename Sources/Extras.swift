@@ -224,14 +224,11 @@ struct GlowView: View {
                 // 30 fps rather than the display's refresh rate: this is a full-screen blurred
                 // stroke, and re-rendering it 60-120 times a second was a large part of the load.
                 TimelineView(.periodic(from: .now, by: 1.0 / 30.0)) { tl in
-                    let t = tl.date.timeIntervalSinceReferenceDate
-                    let p = (t * s.glowBPM / 60).truncatingRemainder(dividingBy: 1)
-                    let live = tl.date.timeIntervalSince(audio.lastSample) < 1.5      // real audio if permission granted
-                    let k = live ? audio.level : exp(-4 * p)
-                    GlowEdges(color: colour(t),
-                              depth: CGFloat((s.glowThickness + s.glowBlur) * (1.0 + 1.3 * k) * 2.2),
-                              opacity: (0.25 + 0.6 * k) * s.glowIntensity,
-                              edges: s.glowEdges)
+                    let t: Double = tl.date.timeIntervalSinceReferenceDate
+                    let p: Double = (t * s.glowBPM / 60).truncatingRemainder(dividingBy: 1)
+                    let live: Bool = s.glowMotion == 0 && tl.date.timeIntervalSince(audio.lastSample) < 1.5   // real audio if allowed
+                    let k: Double = live ? audio.level : exp(-4 * p)
+                    glow(t, k)
                 }
             } else {
                 Color.clear
@@ -240,6 +237,18 @@ struct GlowView: View {
         .animation(.easeOut(duration: 0.4), value: visible)
         .ignoresSafeArea()
         .onChange(of: player.track?.artworkURL) { _, u in Task { await tint(u) } }
+    }
+
+    /// The chosen glow style: a neon rim round the screen, soft edges, corners, or the sides only.
+    @ViewBuilder private func glow(_ t: Double, _ k: Double) -> some View {
+        let depth: CGFloat = CGFloat((s.glowThickness + s.glowBlur) * (1.0 + 1.3 * k) * 2.2)
+        let soft: Double = (0.25 + 0.6 * k) * s.glowIntensity
+        switch s.glowStyle {
+        case 1:  GlowEdges(color: colour(t), depth: depth, opacity: soft, edges: 0)
+        case 2:  GlowCorners(color: colour(t), depth: depth, opacity: soft)
+        case 3:  GlowEdges(color: colour(t), depth: depth, opacity: soft, edges: 3)
+        default: GlowRim(colour: colour(t), power: (0.3 + 0.7 * k) * s.glowIntensity, t: t, thick: CGFloat(0.6 + s.glowThickness / 10.0))
+        }
     }
 
     private func colour(_ t: Double) -> Color {

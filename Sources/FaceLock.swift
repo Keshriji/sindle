@@ -57,6 +57,7 @@ final class FaceLock: NSObject, ObservableObject, AVCaptureVideoDataOutputSample
         }
     }
     private func startCamera(_ m: Mode) {
+        NSApp.activate(ignoringOtherApps: true)
         AVCaptureDevice.requestAccess(for: .video) { ok in
             guard ok else { self.post("Camera access is off"); return }
             self.queue.async {
