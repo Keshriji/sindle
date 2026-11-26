@@ -1,0 +1,55 @@
+==> Host: arm64, macOS 15.8.2
+swift-driver version: 1.120.5 Apple Swift version 6.1.2 (swiftlang-6.1.2.1.2 clang-1700.0.13.5)
+Target: arm64-apple-macosx15.0
+Xcode 16.4
+Build version 16F6
+==> swift build -c release
+Building for production...
+[0/4] Write sources
+[1/4] Write swift-version--79AA4F9932D1E87A.txt
+[3/5] Compiling Spindle Animations.swift
+/Users/runner/work/sindle/sindle/Sources/LockEffects.swift:104:21: error: cannot find 'vividColour' in scope
+102 | func lyricColour(_ mode: Int, tint: Color, custom: Color, index: Int) -> Color {
+103 |     switch mode {
+104 |     case 1:  return vividColour(tint)
+    |                     `- error: cannot find 'vividColour' in scope
+105 |     case 2:  return custom
+106 |     case 3:  return Color(hue: Double(index % 12) / 12.0, saturation: 0.65, brightness: 1.0)
+
+/Users/runner/work/sindle/sindle/Sources/LockScreen.swift:171:21: error: cannot find 'BigWordStage' in scope
+169 |                     AuraDrum(lyrics: lyrics, track: track, colourFor: wordColour, size: m.size)
+170 |                 } else {
+171 |                     BigWordStage(lyrics: lyrics, track: track, colourFor: wordColour, size: m.size)
+    |                     `- error: cannot find 'BigWordStage' in scope
+172 |                 }
+173 |             }
+
+/Users/runner/work/sindle/sindle/Sources/LockScreen.swift:194:21: error: cannot find 'BigWordsBackdrop' in scope
+192 |                     AuraBackdrop(url: track?.artworkURL, tint: tint, audio: audio)
+193 |                 } else if s.lyricStyle == 1 {
+194 |                     BigWordsBackdrop(url: track?.artworkURL)
+    |                     `- error: cannot find 'BigWordsBackdrop' in scope
+195 |                 } else {
+196 |                     SmokyBackdrop(url: track?.artworkURL, audio: audio, tint: tint)
+
+/Users/runner/work/sindle/sindle/Sources/LockScreen.swift:190:13: error: generic parameter 'R' could not be inferred
+188 |     private func backdrop(_ m: LockMetrics, _ mode: LockMode, _ full: Bool) -> some View {
+189 |         if full {
+190 |             Group {
+    |             `- error: generic parameter 'R' could not be inferred
+191 |                 if s.lyricStyle == 4 {
+192 |                     AuraBackdrop(url: track?.artworkURL, tint: tint, audio: audio)
+
+SwiftUI.Group.init:2:31: note: in call to initializer
+1 | generic struct Group {
+2 | @inlinable nonisolated public init<R>(@TableRowBuilder<R> content: () -> Content) where R == Content.TableRowValue}
+  |                               `- note: in call to initializer
+3 | 
+
+/Users/runner/work/sindle/sindle/Sources/LockScreen.swift:584:19: warning: immutable value 't' was never used; consider replacing with '_' or removing it
+582 | 
+583 |     private var progress: Double {
+584 |         guard let t = track, let i = idx, i < lyrics.lines.count else { return 0 }
+    |                   `- warning: immutable value 't' was never used; consider replacing with '_' or removing it
+585 |         let start = lyrics.lines[i].t
+586 |         let end = i + 1 < lyrics.lines.count ? lyrics.lines[i + 1].t : start + 4
